@@ -1,0 +1,36 @@
+# The robot descriptor defines the generalized coordinates and how to map those
+# to the underlying URDF dofs.
+
+api_version: 1.0
+
+# Defines the generalized coordinates. Each generalized coordinate is assumed
+# to have an entry in the URDF, except when otherwise specified below under
+# cspace_urdf_bridge
+cspace:
+    - shoulder_pan_joint
+    - shoulder_lift_joint
+    - elbow_joint
+    - wrist_1_joint
+    - wrist_2_joint
+    - wrist_3_joint
+
+root_link: base_link
+subtree_root_link: base_link
+
+default_q: [0, -1.57, 0, -1.57, 0, 0]
+
+# Most dimensions of the cspace have a direct corresponding element
+# in the URDF. This list of rules defines how unspecified coordinates
+# should be extracted.
+cspace_to_urdf_rules: []
+
+active_task_spaces:
+    - base_link
+    - shoulder_link
+    - upper_arm_link
+    - forearm_link
+    - wrist_1_link
+    - wrist_2_link
+    - wrist_3_link
+
+composite_task_spaces: []

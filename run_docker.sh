@@ -70,6 +70,10 @@ docker run \
     -e OMNIGIBSON_HEADLESS=${OMNIGIBSON_HEADLESS} \
     -e "ACCEPT_EULA=Y"\
     -v $DATA_PATH/benchmark:/benchmark_src:rw \
+    -v $DATA_PATH/robot_config/ur5e:/data/assets/models/ur5e:rw \
+    -v $DATA_PATH/robot_config/ur5e.py:/omnigibson-src/omnigibson/robots/ur5e.py:rw \
+    -v $DATA_PATH/robot_config/entity_prim.py:/omnigibson-src/omnigibson/prims/entity_prim.py:rw \
+    -v $DATA_PATH/robot_config/__init__.py:/omnigibson-src/omnigibson/robots/__init__.py:rw \
     -v $DATA_PATH/datasets:/data:rw \
     -v $DATA_PATH/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit:rw \
     -v $DATA_PATH/isaac-sim/cache/ov:/root/.cache/ov:rw \
