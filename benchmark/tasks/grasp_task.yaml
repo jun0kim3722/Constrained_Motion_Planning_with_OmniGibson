@@ -1,0 +1,11 @@
+# obj_name, 
+# termination_config=None,
+# reward_config=None,
+# precached_reset_pose_path=None,
+# objects_config=None
+
+
+
+task:
+  type: GraspTask
+  obj_name: teacup

@@ -164,7 +164,7 @@ class UR5e(ManipulationRobot):
 
     @property
     def model_name(self):
-        # Override based on specified Franka variant
+        # Override based on specified UR5e variant
         return self._model_name
 
     @property
@@ -172,7 +172,7 @@ class UR5e(ManipulationRobot):
         raise NotImplementedError()
 
     def _create_discrete_action_space(self):
-        raise ValueError("Franka does not support discrete actions!")
+        raise ValueError("UR5e does not support discrete actions!")
 
     @property
     def controller_order(self):
@@ -181,7 +181,7 @@ class UR5e(ManipulationRobot):
     @property
     def _default_controllers(self):
         controllers = super()._default_controllers
-        controllers["arm_{}".format(self.default_arm)] = "InverseKinematicsController"
+        controllers["arm_{}".format(self.default_arm)] = "JointController"
         controllers["gripper_{}".format(self.default_arm)] = "MultiFingerGripperController"
         return controllers
 
@@ -223,7 +223,7 @@ class UR5e(ManipulationRobot):
 
     @property
     def urdf_path(self):
-        return os.path.join(gm.ASSET_PATH, "models/ur5e/ur5e_robotiq_2f85/ur5e_robotiq_2f85.urdf")
+        return os.path.join(gm.ASSET_PATH, "models/ur5e/ur5e_robotiq_2f85.urdf")
 
     @property
     def curobo_path(self):

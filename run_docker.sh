@@ -69,7 +69,7 @@ docker run \
     -e DISPLAY=${DOCKER_DISPLAY} \
     -e OMNIGIBSON_HEADLESS=${OMNIGIBSON_HEADLESS} \
     -e "ACCEPT_EULA=Y"\
-    -v $DATA_PATH/benchmark:/benchmark_src:rw \
+    -v $DATA_PATH/benchmark:/omnigibson-src/benchmark_src:rw \
     -v $DATA_PATH/robot_config/ur5e:/data/assets/models/ur5e:rw \
     -v $DATA_PATH/robot_config/ur5e.py:/omnigibson-src/omnigibson/robots/ur5e.py:rw \
     -v $DATA_PATH/robot_config/entity_prim.py:/omnigibson-src/omnigibson/prims/entity_prim.py:rw \
