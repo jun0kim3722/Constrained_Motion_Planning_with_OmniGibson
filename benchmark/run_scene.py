@@ -5,12 +5,12 @@ Options for random actions, as well as selection of robot action space
 """
 
 import torch as th
-
 import omnigibson as og
 import omnigibson.utils.transform_utils as T
-from grasp_utils.ik_solver import IKSolver
+from benchmark.grasp_utils.kinematic import IKSolver, FKSolver
 from omnigibson.utils.grasping_planning_utils import get_grasp_poses_for_object_sticky
 import yaml
+import numpy as np
 
 # # Don't use GPU dynamics and use flatcache for performance boost
 # gm.USE_GPU_DYNAMICS = False
@@ -30,7 +30,6 @@ def plan_grasp(robot, ik_solver, obj):
         joint_pos = ik_solver.solve(target_pose_homo = target_pose_homo)
         
         if joint_pos is not None:
-            print("Pos", grasp_pos[0][0])
             return joint_pos
     
     return None
@@ -42,25 +41,21 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     """
     # og.log.info(f"Demo {__file__}\n    " + "*" * 80 + "\n    Description:\n" + main.__doc__ + "*" * 80)
 
-    # Add the robot we want to load
-    robot_name = "UR5e"
-    robot0_cfg = dict()
-    robot0_cfg["type"] = robot_name
-    robot0_cfg["obs_modalities"] = ["rgb"]
-    robot0_cfg["action_type"] = "continuous"
-    robot0_cfg["action_normalize"] = True
-
     # Create the environment
     cfg = read_yaml("envs/kitchen_env_config.yaml")
-    # robot.get_position_orientation
-    robot_pos = th.tensor(cfg["robots"][0]["position"])
-    robot_rot = th.tensor(cfg["robots"][0]["orientation"])
-    robot_pose_world = T.pose2mat([robot_pos, robot_rot])
     env = og.Environment(configs=cfg)
-
-    # # Choose robot controller to use
     robot = env.robots[0]
     env.scene.update_initial_state()
+
+    robot_loc = robot.get_position_orientation()
+    robot_pose_world = T.pose2mat(robot_loc)
+    ik_solver = IKSolver(
+        robot_description_path=robot.robot_arm_descriptor_yamls[robot.default_arm],
+        robot_urdf_path=robot.urdf_path,
+        reset_joint_pos=robot.get_joint_positions()[robot.arm_control_idx[robot.default_arm]],
+        eef_name=robot.eef_link_names[robot.default_arm],
+        world2robot_homo=T.pose_inv(robot_pose_world)
+    )
 
     # Update the simulator's viewer camera's pose so it points towards the robot
     og.sim.viewer_camera.set_position_orientation(
@@ -72,21 +67,26 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     env.reset()
     robot.reset()
 
-    breakpoint()
+    # plan grasp
+    teacup = env.scene.object_registry("name", "teacup")
+    knife = env.scene.object_registry("name", "knife")
+    tablespoon = env.scene.object_registry("name", "tablespoon")
+    teacup_joints = plan_grasp(robot, ik_solver, teacup)
+    knife_joints = plan_grasp(robot, ik_solver, knife)
+    tablespoon_joints = plan_grasp(robot, ik_solver, tablespoon)
 
     # Other helpful user info
     print("Running demo.")
     print("Press ESC to quit")
 
     # Loop control until user quits
-    max_steps = -1 if not short_exec else 100
+    max_steps = -1 if not short_exec else 10000
     step = 0
 
     while step != max_steps:
-        
-        env.step(action=action)
-        print(action)
-        step += 1
+        action = env.action_space.sample()
+        action['UR5e'] = np.concatenate((teacup_joints, [-1]), dtype="float32")
+        env.step(action)
 
     # Always shut down the environment cleanly at the end
     og.clear()
