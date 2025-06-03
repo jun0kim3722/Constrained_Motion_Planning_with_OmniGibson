@@ -5,13 +5,13 @@ import numpy as np
 
 from omnigibson.utils.grasping_planning_utils import get_grasp_poses_for_object_sticky
 import omnigibson.utils.transform_utils as T
-from omnigibson.utils.geometry_utils import generate_points_in_volume_checker_function
 
 from grasp_utils.kinematic import IKSolver
 
 from motion_planner import motion_plan_utils
 from motion_planner.cont_planner import ArmCcontrainedPlanner
 from collections import OrderedDict
+
 
 def plan_grasp(ik_solver, obj):
     grasp_poses = get_grasp_poses_for_object_sticky(obj)
@@ -37,6 +37,17 @@ def execute_motion(env, joint_path, is_griper_open):
     for joints in joint_path:
         execute_controller(env, joints, is_griper_open)
 
+def get_pose_from_path(path_list, frame_rate=10):
+    pos_list = []
+    for path_idx in range(1, len(path_list)):
+        start_pos = np.array(path_list[path_idx - 1])
+        end_pos = np.array(path_list[path_idx])
+        delta = (end_pos - start_pos) / frame_rate
+
+        for i in range(frame_rate + 1):
+            pos_list.append((start_pos + (delta * i)).tolist())
+    
+    return pos_list
 
 cfg = dict()
 # Define scene
@@ -57,13 +68,13 @@ cfg["objects"] = [
         "position": [-3.15968, -2.52066, 0.96],
         # "position": [-2.74713, -2.52066, 0.95],
     },
-    {
-        "type": "DatasetObject",
-        "name": "knife",
-        "category": "carving_knife",
-        "model": "alekva",
-        "position": [-2.34713, -2.06784, 0.95],
-    },
+    # {
+    #     "type": "DatasetObject",
+    #     "name": "knife",
+    #     "category": "carving_knife",
+    #     "model": "alekva",
+    #     "position": [-2.34713, -2.06784, 0.95],
+    # },
     {
         "type": "DatasetObject",
         "name": "tablespoon",
@@ -78,6 +89,14 @@ cfg["objects"] = [
     #     "model": "pnbbfb",
     #     "position": [0, -0.5, 1.0],
     # },
+    {
+        "type": "PrimitiveObject",
+        "name": "box",
+        "primitive_type": "Cube",
+        "rgba": [1.0, 0, 0, 1.0],
+        "size": 0.35,
+        "position": [-2.34713, -2.06784, 0.95],
+    }
 ]
 
 # Define robots
@@ -86,7 +105,9 @@ cfg["robots"] = [
         "type": "UR5e",
         "name": "UR5e",
         "obs_modalities": ["rgb", "depth"],
-        "position": [-3.056, -2.14226, 1.0],
+        "position": [-3.056, -2.04226, 1.03],
+        # "position": [-3.556, -2.04226, 0.8],
+        # "orientation": [ 0, 0, -0.7071068, 0.7071068],
         # "position": [0,0,0],
         "action_normalize": False,
         "controller_config":
@@ -102,6 +123,7 @@ robot_pos = th.tensor(cfg["robots"][0]["position"])
 robot_rot = th.tensor([0,0,0,1])
 robot_pose_world = T.pose2mat([robot_pos, robot_rot])
 env = og.Environment(cfg)
+env.scene.show_collision_mesh = True
 
 # Allow camera teleoperation
 og.sim.enable_viewer_camera_teleoperation()
@@ -128,48 +150,30 @@ ik_solver = IKSolver(
     )
 
 # grasp position
-teacup = env.scene.object_registry("name", "teacup")
-knife = env.scene.object_registry("name", "knife")
-tablespoon = env.scene.object_registry("name", "tablespoon")
+# teacup = env.scene.object_registry("name", "teacup")
+# knife = env.scene.object_registry("name", "knife")
+# tablespoon = env.scene.object_registry("name", "tablespoon")
 
-teacup_pos = get_grasp_poses_for_object_sticky(teacup)[0][0][0] - th.tensor([-3.056, -2.14226, 0.63268])
-knife_pos = get_grasp_poses_for_object_sticky(knife)[0][0][0] - th.tensor([-3.056, -2.14226, 0.63268])
-tablespoon_pos = get_grasp_poses_for_object_sticky(tablespoon)[0][0][0] - th.tensor([-3.056, -2.14226, 0.63268])
+# teacup_pos = get_grasp_poses_for_object_sticky(teacup)[0][0][0] - th.tensor([-3.056, -2.14226, 0.63268])
+# knife_pos = get_grasp_poses_for_object_sticky(knife)[0][0][0] - th.tensor([-3.056, -2.14226, 0.63268])
+# tablespoon_pos = get_grasp_poses_for_object_sticky(tablespoon)[0][0][0] - th.tensor([-3.056, -2.14226, 0.63268])
 
-teacup_joints = plan_grasp(ik_solver, teacup)
-knife_joints = plan_grasp(ik_solver, knife)
-tablespoon_joints = plan_grasp(ik_solver, tablespoon)
+# teacup_joints = plan_grasp(ik_solver, teacup)
+# knife_joints = plan_grasp(ik_solver, knife)
+# tablespoon_joints = plan_grasp(ik_solver, tablespoon)
 
-print("teacup_joints", teacup_joints, teacup_pos)
-print("knife_joints", knife_joints, knife_pos)
-print("tablespoon_joints", tablespoon_joints, tablespoon_pos)
+# print("teacup_joints", teacup_joints, teacup_pos)
+# print("knife_joints", knife_joints, knife_pos)
+# print("tablespoon_joints", tablespoon_joints, tablespoon_pos)
 
 
 robot_copy = motion_plan_utils.RobotCopy(robot)
-# verify mesh by checker and viz again
-breakpoint()
-
-
-while True:
-    og.sim.step()
-
-
-context = motion_plan_utils.PlanningContext(env, robot, robot_copy)
-# plan = motion_plan_utils.plan_arm_motion(robot, teacup_joints, context)
-
-# start_joints = [-2.39391081, -1.76834296,  2.0588798 , -0.09981707,  0.74678147, 0.01387683]
-# start_joints = [0.7, -2, 2.5, -0.3, 0.7, 0]
-# start_joints = [-0.82790005,-1.0197,1.4702001,-0.4496,1.3429,-3.1407]
-start_joints= [0.4566701,-1.0224016,1.4694293,-0.44907653,1.3427804,-3.1414886]
+start_joints = [-0.82790005,-1.0197,1.4702001,-0.4496,1.3429,-3.1407]
+goal_joints = np.array([0.4566701,-1.0224016,1.4694293,-0.44907653,1.3427804,-3.1414886])
 
 # cup_pos = teacup.get_position_orientation()
 # pick_pos = T.pose2mat([cup_pos[0], T.euler2quat(th.tensor([-2.98777613,  0.12833831, -1.56089303]))])
 # start_joints = ik_solver.solve(target_pose_homo = pick_pos)
-
-griper_pos, griper_rot = context.fk_solver.get_link_poses_euler(start_joints, [robot._eef_link_names])[robot._eef_link_names]
-# rot_const = np.array([-2.98777613,  0.12833831, -1.56089303])
-rot_const = griper_rot
-rot_const[-1] = None
 
 
 for i in range(100):
@@ -178,21 +182,25 @@ for i in range(100):
     action['UR5e'] = np.concatenate((angle, [1]), dtype="float32")
     env.step(action)
 
-acp = ArmCcontrainedPlanner(context, trans_const=None, rot_const=rot_const, num_const=2, tolerance=np.deg2rad(30.0))
+path = None
+with motion_plan_utils.PlanningContext(env, robot, robot_copy) as context:
+    # breakpoint() # sink_zexzrc_0
+    # while True:
+    #     motion_plan_utils.set_arm_and_detect_collision(context, [-np.pi/2,-0.8224016,1.4694293,-0.44907653,1.3427804,-3.1414886], verbose=True)
+    #     og.sim.step()
 
-# breakpoint()
-# target_pose_homo = T.pose2mat([th.tensor(griper_pos + [-0.05,0.05,0.01]), T.euler2quat(th.tensor(griper_rot))])
-# goal_joints = ik_solver.solve(target_pose_homo = target_pose_homo)
-goal_joints = np.array([0.44289634,-1.0197,1.4702001,-0.4496,1.3429,-1.5699035])
+    # set planner
+    griper_pos, griper_rot = context.fk_solver.get_link_poses_euler(start_joints, [robot._eef_link_names])[robot._eef_link_names]
+    rot_const = griper_rot
+    rot_const[-1] = None
+    acp = ArmCcontrainedPlanner(context, trans_const=None, rot_const=rot_const, num_const=2, tolerance=np.deg2rad(20.0))
 
-while True:
-    og.sim.step()
+    path = acp.plan(robot, goal_joints.tolist(), context)
 
-breakpoint()
-generate_points_in_volume_checker_function(context.robot_copy, context.robot, use_visual_meshes=True, mesh_name_prefixes=None)
-path = acp.plan(robot, goal_joints.tolist(), context)
+    if path:
+        path = get_pose_from_path(path)
+        path.insert(0, start_joints)
 
-breakpoint()
 # execute_motion(env, path, False)
 # breakpoint()
 
@@ -292,7 +300,10 @@ for _ in range(10000):
     #     breakpoint()
     # env.step([])
 
+    # if _ == 0:
     execute_motion(env, path, False)
+
+    # motion_plan_utils.set_arm_and_detect_collision(context, joint_pos, verbose=True)
 
 
     # if joint_pos is not None:

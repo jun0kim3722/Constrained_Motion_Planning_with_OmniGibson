@@ -223,6 +223,10 @@ class ArmCcontrainedPlanner():
             ou.OMPL_DEBUG("Exact solution found")
 
             path = self.cp_.ss.getSolutionPath()
+
+            # path_simp = og.PathSimplifier(si)
+            # res = path_simp.reduceVertices(path)
+
             path_list = []
             for t in range(path.getStateCount()):
                 state = path.getState(t)
@@ -231,3 +235,31 @@ class ArmCcontrainedPlanner():
             return path_list
         else:
             return None
+
+        # # Solve the problem
+        # temp_res = self.cp_.ss.solve(planning_time)
+        # if temp_res.asString() == 'Exact solution':
+        #     path = self.cp_.ss.getSolutionPath()
+
+        #     if not path.check():
+        #         ou.OMPL_WARN("Path fails check!")
+        #     else:
+        #         ou.OMPL_WARN("Path check!")
+            
+        #     simplePath = self.cp_.ss.getSolutionPath()
+        #     ou.OMPL_INFORM("Simplified Path Length: %.3f -> %.3f" %
+        #                    (path.length(), simplePath.length()))
+
+        #     if not simplePath.check():
+        #         ou.OMPL_WARN("Simplified path fails check!")
+        #     else:
+        #         ou.OMPL_WARN("Simplified path check!")
+
+        #     path_list = []
+        #     for t in range(simplePath.getStateCount()):
+        #         state = path.getState(t)
+        #         path_list.append([state[0], state[1], state[2], state[3], state[4], state[5]])
+
+        #     return path_list
+        # else:
+        #     return None

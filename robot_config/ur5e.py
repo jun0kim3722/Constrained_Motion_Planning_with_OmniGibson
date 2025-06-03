@@ -195,7 +195,12 @@ class UR5e(ManipulationRobot):
 
     @property
     def arm_link_names(self):
-        return {self.default_arm: ['base_link', 'shoulder_link', 'upper_arm_link', 'forearm_link', 'wrist_1_link', 'wrist_2_link', 'wrist_3_link']}
+        return {self.default_arm: ['base_link', 'shoulder_link', 'upper_arm_link', 'forearm_link',
+                                   'wrist_1_link', 'wrist_2_link', 'wrist_3_link',
+                                   'robotiq_arg2f_base_link', 'left_outer_knuckle',
+                                   'left_outer_finger', 'left_inner_finger', 'left_inner_finger_pad',
+                                   'left_inner_knuckle', 'right_inner_knuckle', 'right_outer_knuckle',
+                                   'right_outer_finger', 'right_inner_finger', 'right_inner_finger_pad']}
 
     @property
     def arm_joint_names(self):
@@ -253,7 +258,15 @@ class UR5e(ManipulationRobot):
 
     @property
     def disabled_collision_pairs(self):
-        return [["robotiq_arg2f_base_link", "left_outer_knuckle"],
+        return [["base_link_inertia", "shoulder_link"],
+                ['base_link', 'shoulder_link'],
+                ['shoulder_link', 'upper_arm_link'],
+                ['upper_arm_link', 'forearm_link'],
+                ['forearm_link', 'wrist_1_link'],
+                ['wrist_1_link', 'wrist_2_link'],
+                ['wrist_2_link', 'wrist_3_link'],
+                ["robotiq_arg2f_base_link", 'wrist_3_link'],
+                ["robotiq_arg2f_base_link", "left_outer_knuckle"],
                 ["robotiq_arg2f_base_link", "left_inner_knuckle"],
                 ["robotiq_arg2f_base_link", "right_outer_knuckle"],
                 ["robotiq_arg2f_base_link", "right_inner_knuckle"],
@@ -263,10 +276,8 @@ class UR5e(ManipulationRobot):
                 ["left_inner_finger", "left_outer_finger"],
                 ["right_outer_knuckle", "right_outer_finger"],
                 ["right_inner_knuckle", "right_inner_finger"],
+                ["right_inner_knuckle", "right_outer_finger"],
                 ["left_inner_finger", "left_inner_knuckle"],
                 ["right_inner_finger", "right_outer_finger"],
-                ["right_inner_finger_pad", "right_inner_finger"],
-                ["forearm_link", "robotiq_arg2f_base_link"],
-                ["forearm_link", "left_outer_knuckle"],
-                ["forearm_link", "left_outer_finger"]
+                ["right_inner_finger_pad", "right_inner_finger"]
                 ]
