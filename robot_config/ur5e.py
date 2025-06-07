@@ -196,7 +196,7 @@ class UR5e(ManipulationRobot):
     @property
     def arm_link_names(self):
         return {self.default_arm: ['base_link', 'shoulder_link', 'upper_arm_link', 'forearm_link',
-                                   'wrist_1_link', 'wrist_2_link', 'wrist_3_link',
+                                   'wrist_1_link', 'wrist_2_link', 'wrist_3_link', "ee_link",
                                    'robotiq_arg2f_base_link', 'left_outer_knuckle',
                                    'left_outer_finger', 'left_inner_finger', 'left_inner_finger_pad',
                                    'left_inner_knuckle', 'right_inner_knuckle', 'right_outer_knuckle',

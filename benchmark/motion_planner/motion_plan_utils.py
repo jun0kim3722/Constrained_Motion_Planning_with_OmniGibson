@@ -30,17 +30,12 @@ class RobotCopy:
             "simplified": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
         }
     
-    def __init__(self, og_robot):
+    def __init__(self, og_robot, obj=None):
         self.prims = {}
         self.meshes = {}
         self.relative_poses = {}
         self.links_relative_poses = {}
-        # self.reset_pose = {
-        #     "original": og_robot.get_position_orientation(),
-        #     "simplified": og_robot.get_position_orientation(),
-        # }
         self.reset_pose = {
-            # "original": (th.tensor([-2.31736, -1.16763, 0.6], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
             "original": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
             "simplified": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
         }
@@ -73,10 +68,6 @@ class RobotCopy:
                 link_name = link.prim_path.split("/")[-1]
                 for mesh_name, mesh in link.collision_meshes.items():
                     split_path = mesh.prim_path.split("/")
-                    # Do not copy grasping frame (this is necessary for Tiago, but should be cleaned up in the future)
-                    # if "grasping_frame" in link_name:
-                    #     continue
-
                     copy_mesh_path = rc["copy_path"] + "/" + link_name
                     copy_mesh_path += f"_{split_path[-1]}" if split_path[-1] != "collisions" else ""
                     lazy.omni.usd.commands.CopyPrimCommand(mesh.prim_path, path_to=copy_mesh_path).do()
@@ -93,11 +84,63 @@ class RobotCopy:
                         copy_robot_meshes[link_name][mesh_name] = copy_mesh
                         copy_robot_meshes_relative_poses[link_name][mesh_name] = relative_pose
 
-                # breakpoint()
                 copy_robot_links_relative_poses[link_name] = T.relative_pose_transform(
                     *link.get_position_orientation(), *og_robot.get_position_orientation()
                 )
-                # copy_robot_links_relative_poses[link_name] = og_robot.get_position_orientation()
+
+            # if obj:
+            #     for link in obj.links.values():
+            #         link_name = link.prim_path.split("/")[-1]
+            #         for mesh_name, mesh in link.collision_meshes.items():
+            #             split_path = mesh.prim_path.split("/")
+            #             copy_mesh_path = obj.prim_path  + "_copy" + "/" + link_name
+            #             # copy_mesh_path += f"_{split_path[-1]}" if split_path[-1] != "collisions" else ""
+            #             lazy.omni.usd.commands.CopyPrimCommand(mesh.prim_path, path_to=copy_mesh_path).do()
+            #             copy_mesh = lazy.omni.isaac.core.utils.prims.get_prim_at_path(copy_mesh_path)
+
+            #             relative_pose = T.relative_pose_transform(
+            #                 *mesh.get_position_orientation(), *link.get_position_orientation()
+            #             )
+
+            #             # ee_link_name = og_robot.eef_link_names[og_robot.default_arm]
+            #             ee_link_name = "right_outer_finger"
+            #             copy_robot_meshes[ee_link_name][mesh_name] = copy_mesh
+            #             copy_robot_meshes_relative_poses[ee_link_name][mesh_name] = relative_pose
+
+            if obj:
+                from pxr import UsdPhysics
+
+                # Attach object meshes to a specific robot copy link
+                ee_link_name = og_robot.eef_link_names[og_robot.default_arm]  # Or use og_robot.eef_link_names[og_robot.default_arm]
+                target_link_path = rc["copy_path"] + "/" + ee_link_name
+                lazy.omni.usd.commands.CreatePrimCommand("Xform", target_link_path).do()
+
+                if ee_link_name not in copy_robot_meshes:
+                    copy_robot_meshes[ee_link_name] = {}
+                    copy_robot_meshes_relative_poses[ee_link_name] = {}
+
+                obj_idx = 0
+                for link in obj.links.values():
+                    for mesh_name, mesh in link.collision_meshes.items():
+                        if not UsdPhysics.CollisionAPI(mesh.prim).GetCollisionEnabledAttr().Get():
+                            continue  # Skip non-collision shapes
+
+                        # Create unique name under EE link
+                        copy_mesh_path = f"{target_link_path}/attached_obj_{obj_idx}"
+                        lazy.omni.usd.commands.CopyPrimCommand(mesh.prim_path, path_to=copy_mesh_path).do()
+
+                        copy_mesh = lazy.omni.isaac.core.utils.prims.get_prim_at_path(copy_mesh_path)
+
+                        relative_pose = T.relative_pose_transform(
+                            *mesh.get_position_orientation(),
+                            *og_robot.links[ee_link_name].get_position_orientation()
+                        )
+
+                        copy_robot_meshes[ee_link_name][f"attached_obj_{obj_idx}"] = copy_mesh
+                        copy_robot_meshes_relative_poses[ee_link_name][f"attached_obj_{obj_idx}"] = relative_pose
+                        obj_idx += 1
+                
+                
 
             if robot_type == "simplified":
                 self.env.scene.remove_object(robot_to_copy)
@@ -107,25 +150,32 @@ class RobotCopy:
             self.relative_poses[robot_type] = copy_robot_meshes_relative_poses
             self.links_relative_poses[robot_type] = copy_robot_links_relative_poses
 
-        og.sim.step()
-
+        og.sim.step() # maybe add obj link?
 
 class PlanningContext(object):
     """
     A context manager that sets up a robot copy for collision checking in planning.
     """
 
-    def __init__(self, env, robot, robot_copy, robot_copy_type="original"):
+    def __init__(self, env, robot, in_hand_obj=None, robot_copy_type="original"):
+
         self.env = env
         self.robot = robot
+        self.in_hand_obj = in_hand_obj
+
+        robot_copy = RobotCopy(robot, in_hand_obj)
         self.robot_copy = robot_copy
         self.robot_copy_type = robot_copy_type if robot_copy_type in robot_copy.prims.keys() else "original"
         self.disabled_collision_pairs_dict = {}
+        
         self.offset = (self.robot.get_position_orientation()[0] - self.robot_copy.reset_pose['original'][0],
                        self.robot.get_position_orientation()[1] - self.robot_copy.reset_pose['original'][1])
 
         self._assemble_robot_copy()
         self._construct_disabled_collision_pairs()
+
+        robot_prim = robot_copy.prims['original']
+        self.collision_prims = self.get_collision_enabled_prims(robot_prim)
 
     def __enter__(self):
         self._assemble_robot_copy()
@@ -133,7 +183,6 @@ class PlanningContext(object):
         return self
 
     def __exit__(self, *args):
-        # breakpoint()
         # self._set_prim_pose(
         #     self.robot_copy.prims[self.robot_copy_type], self.robot_copy.reset_pose[self.robot_copy_type]
         # )
@@ -141,7 +190,6 @@ class PlanningContext(object):
         for link_name, meshes in self.robot_copy.meshes[self.robot_copy_type].items():
             for mesh_name, copy_mesh in meshes.items():
                 self._set_prim_pose(copy_mesh, self.robot_copy.reset_pose[self.robot_copy_type])
-
 
     def _assemble_robot_copy(self):
         self.fk_solver = FKSolver(
@@ -157,11 +205,7 @@ class PlanningContext(object):
         # Assemble robot meshes
         for link_name, meshes in self.robot_copy.meshes[self.robot_copy_type].items():
             for mesh_name, copy_mesh in meshes.items():
-                # Skip grasping frame (this is necessary for Tiago, but should be cleaned up in the future)
-                if "grasping_frame" in link_name:
-                    continue
                 # Set poses of meshes relative to the robot to construct the robot
-
                 link_pose = (
                     link_poses[link_name]
                     if link_name in arm_links
@@ -173,7 +217,8 @@ class PlanningContext(object):
                 )
 
                 mesh_copy_pose = (mesh_copy_pose[0] + self.offset[0], 
-                                  mesh_copy_pose[1] + self.offset[1]) # fix
+                                  mesh_copy_pose[1] + self.offset[1]) # fix !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
                 self._set_prim_pose(copy_mesh, mesh_copy_pose)
 
     def _set_prim_pose(self, prim, pose):
@@ -239,7 +284,104 @@ class PlanningContext(object):
 
         for colliders in self.disabled_collision_pairs_dict.values():
             colliders += disabled_colliders
+        
+        if self.in_hand_obj:
+            robot_meshes_copy = self.robot_copy.meshes[self.robot_copy_type]
+            # /World/scene_0/controllable__ur5e__UR5e_copy/ee_link/attached_obj_31 collides with /World/scene_0/teacup/base_link
+            obj_meshes = [obj_link.prim.GetPrimPath().pathString for obj_link in self.in_hand_obj.links.values()]
+            robot_meshes = []
+            for robot_link in robot_meshes_copy.keys():
+                for mesh in robot_meshes_copy[robot_link].values():
+                    self.disabled_collision_pairs_dict[mesh.GetPrimPath().pathString] += obj_meshes
+                    robot_meshes.append(mesh.GetPrimPath().pathString)
+        
+            for obj_link in self.in_hand_obj.links.values():
+                self.disabled_collision_pairs_dict[obj_link.prim.GetPrimPath().pathString] = robot_meshes
+        
+    def get_collision_enabled_prims(self, root_prim):
+        from pxr import Usd, UsdGeom, UsdPhysics
+        stack = [root_prim]
+        collision_prims = []
 
+        while stack:
+            prim = stack.pop()
+            if not prim.IsValid():
+                continue
+            # Check if CollisionAPI is applied and enabled
+            if UsdPhysics.CollisionAPI(prim).GetCollisionEnabledAttr().Get():
+                collision_prims.append(prim)
+            stack.extend(list(prim.GetChildren()))
+
+        return collision_prims
+
+    def set_arm_and_detect_collision(self, joint_pos, verbose=False):
+        """
+        Sets joint positions of the robot and detects robot collisions with the environment and itself
+
+        Args:
+            joint_pos (Array): Joint positions to set the robot to
+            verbose (bool): Whether the collision detector should output information about collisions or not. The verbose mode is too noisy in sampling so it is default to False
+
+        Returns:
+            bool: Whether the robot is in a valid state i.e. not in collision
+        """
+        robot_copy = self.robot_copy
+        robot_copy_type = self.robot_copy_type
+
+        arm_links = self.robot.arm_link_names[self.robot.default_arm]
+        link_poses = self.fk_solver.get_link_poses(joint_pos, arm_links)
+
+        for link in arm_links:
+            pose = link_poses[link]
+            if link in robot_copy.meshes[robot_copy_type].keys():
+                for mesh_name, mesh in robot_copy.meshes[robot_copy_type][link].items():
+                    relative_pose = robot_copy.relative_poses[robot_copy_type][link][mesh_name]
+                    mesh_pose = T.pose_transform(*pose, *relative_pose)
+                    mesh_pose = (mesh_pose[0] + self.offset[0],
+                                mesh_pose[1] + self.offset[1])
+                    translation = lazy.pxr.Gf.Vec3d(*mesh_pose[0].tolist())
+                    mesh.GetAttribute("xformOp:translate").Set(translation)
+                    orientation = mesh_pose[1][[3, 0, 1, 2]]
+                    mesh.GetAttribute("xformOp:orient").Set(lazy.pxr.Gf.Quatd(*orientation.tolist()))
+
+        return self.detect_robot_collision(verbose=verbose)
+
+    def detect_robot_collision(self, verbose=False):
+        """
+        Detects robot collisions
+
+        Args:
+            verbose (bool): Whether the collision detector should output information about collisions or not. The verbose mode is too noisy in sampling so it is default to False
+
+        Returns:
+            valid_hit(bool): Whether the robot is in collision
+        """
+        valid_hit = False
+        mesh_path = None
+        def overlap_callback(hit):
+            nonlocal valid_hit
+            if mesh_path not in self.disabled_collision_pairs_dict:
+                valid_hit = True
+            else:
+                valid_hit = hit.rigid_body not in self.disabled_collision_pairs_dict[mesh_path]
+
+            if valid_hit and verbose:
+                print(f"[Collision] {mesh_path} collides with {hit.rigid_body}")
+            return not valid_hit
+
+        for prim in self.collision_prims:
+            if valid_hit:
+                return valid_hit
+
+            mesh_path = prim.GetPath().pathString
+            mesh_id = lazy.pxr.PhysicsSchemaTools.encodeSdfPath(mesh_path)
+
+            if prim.GetTypeName() == "Mesh":
+                og.sim.psqi.overlap_mesh(*mesh_id, reportFn=overlap_callback)
+            else:
+                og.sim.psqi.overlap_shape(*mesh_id, reportFn=overlap_callback)
+
+        return valid_hit
 
 def plan_arm_motion(robot, end_conf, context, planning_time=30.0, torso_fixed=True):
     """
@@ -276,7 +418,7 @@ def plan_arm_motion(robot, end_conf, context, planning_time=30.0, torso_fixed=Tr
     def state_valid_fn(q, verbose=False):
         joint_pos = initial_joint_pos
         joint_pos[control_idx_in_joint_pos] = th.tensor([q[i] for i in range(dim)])
-        return not set_arm_and_detect_collision(context, joint_pos, verbose=verbose)
+        return not set_arm_and_detect_collision(joint_pos, verbose=verbose)
 
     # create an SE2 state space
     space = ob.RealVectorStateSpace(dim)
@@ -331,117 +473,3 @@ def plan_arm_motion(robot, end_conf, context, planning_time=30.0, torso_fixed=Tr
             return_path.append(joint_pos)
         return return_path
     return None
-
-def set_arm_and_detect_collision(context, joint_pos, verbose=False):
-    """
-    Sets joint positions of the robot and detects robot collisions with the environment and itself
-
-    Args:
-        context (PlanningContext): Context to plan in that includes the robot copy
-        joint_pos (Array): Joint positions to set the robot to
-        verbose (bool): Whether the collision detector should output information about collisions or not. The verbose mode is too noisy in sampling so it is default to False
-
-    Returns:
-        bool: Whether the robot is in a valid state i.e. not in collision
-    """
-    robot_copy = context.robot_copy
-    robot_copy_type = context.robot_copy_type
-
-    arm_links = context.robot.arm_link_names[context.robot.default_arm]
-    link_poses = context.fk_solver.get_link_poses(joint_pos, arm_links)
-
-    for link in arm_links:
-        pose = link_poses[link]
-        if link in robot_copy.meshes[robot_copy_type].keys():
-            for mesh_name, mesh in robot_copy.meshes[robot_copy_type][link].items():
-                relative_pose = robot_copy.relative_poses[robot_copy_type][link][mesh_name]
-                mesh_pose = T.pose_transform(*pose, *relative_pose)
-                mesh_pose = (mesh_pose[0] + context.offset[0],
-                             mesh_pose[1] + context.offset[1])
-                translation = lazy.pxr.Gf.Vec3d(*mesh_pose[0].tolist())
-                mesh.GetAttribute("xformOp:translate").Set(translation)
-                orientation = mesh_pose[1][[3, 0, 1, 2]]
-                mesh.GetAttribute("xformOp:orient").Set(lazy.pxr.Gf.Quatd(*orientation.tolist()))
-
-    return detect_robot_collision(context, verbose=verbose)
-
-def detect_robot_collision(context, verbose=False):
-    """
-    Detects robot collisions
-
-    Args:
-        context (PlanningContext): Context to plan in that includes the robot copy
-        verbose (bool): Whether the collision detector should output information about collisions or not. The verbose mode is too noisy in sampling so it is default to False
-
-    Returns:
-        valid_hit(bool): Whether the robot is in collision
-    """
-    robot_copy = context.robot_copy
-    robot_copy_type = context.robot_copy_type
-
-    # Define function for checking overlap
-    valid_hit = False
-    mesh_path = None
-
-    def overlap_callback(hit):
-        nonlocal valid_hit
-        valid_hit = hit.rigid_body not in context.disabled_collision_pairs_dict[mesh_path]
-
-        # if verbose mode is on and overlap is detected, output a warning on the colliding object and robot mesh_path
-        if valid_hit and verbose:
-            print(
-                f"Could not make a plan to get to the target position, colliding objects: {hit.rigid_body} and {mesh_path}",
-            )
-
-        if valid_hit:
-            return not valid_hit
-
-    for meshes in robot_copy.meshes[robot_copy_type].values():
-        for mesh in meshes.values():
-            if valid_hit:
-                return valid_hit
-            mesh_path = mesh.GetPrimPath().pathString
-            mesh_id = lazy.pxr.PhysicsSchemaTools.encodeSdfPath(mesh_path)
-            if mesh.GetTypeName() == "Mesh":
-                print("mesh")
-                og.sim.psqi.overlap_mesh(*mesh_id, reportFn=overlap_callback)
-                
-            else:
-                print("shape")
-                og.sim.psqi.overlap_shape(*mesh_id, reportFn=overlap_callback)
-
-    return valid_hit
-
-def detect_robot_collision_in_sim(robot, filter_objs=None, ignore_obj_in_hand=True):
-    """
-    Detects robot collisions with the environment, but not with itself using the ContactBodies API
-
-    Args:
-        robot (BaseRobot): Robot object to detect collisions for
-        filter_objs (Array of StatefulObject or None): Objects to ignore collisions with
-        ignore_obj_in_hand (bool): Whether to ignore collisions with the object in the robot's hand
-
-    Returns:
-        bool: Whether the robot is in collision
-    """
-    if filter_objs is None:
-        filter_objs = []
-
-    filter_categories = ["floors"]
-
-    obj_in_hand = robot._ag_obj_in_hand[robot.default_arm]
-    if obj_in_hand is not None and ignore_obj_in_hand:
-        filter_objs.append(obj_in_hand)
-
-    # Use the RigidCollisionAPI to get the things this robot is colliding with
-    scene_idx = robot.scene.idx
-    link_paths = set(robot.link_prim_paths)
-    collision_body_paths = {
-        row
-        for row, _ in GripperRigidContactAPI.get_contact_pairs(scene_idx, column_prim_paths=link_paths)
-        if row not in link_paths
-    }
-
-    # Convert to prim objects and filter out the necessary objects.
-    rigid_prims = prim_paths_to_rigid_prims(collision_body_paths, robot.scene)
-    return any(o not in filter_objs and o.category not in filter_categories for o, p in rigid_prims)

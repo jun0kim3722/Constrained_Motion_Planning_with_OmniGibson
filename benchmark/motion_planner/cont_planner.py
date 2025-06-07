@@ -5,8 +5,6 @@ from ompl import util as ou
 from ompl import base as ob
 from ompl import geometric as og
 from scipy.spatial.transform import Rotation as R
-from motion_planner.motion_plan_utils import set_arm_and_detect_collision
-
 
 # ********************************** constrained problem def **********************************
 class ConstrainedProblem(object):
@@ -167,7 +165,7 @@ class ArmValidAll(ob.StateValidityChecker):
 
     def isValid(self, dof_state, debug=False):
         joint_pos = th.tensor([dof_state[i] for i in range(self.dim)])
-        return not set_arm_and_detect_collision(self.context, joint_pos, True)
+        return not self.context.set_arm_and_detect_collision(joint_pos, True)
 
 class ArmCcontrainedPlanner():
     def __init__(self, context, trans_const, rot_const, num_const, tolerance,
@@ -191,8 +189,8 @@ class ArmCcontrainedPlanner():
                                       exploration, epsilon, rho, alpha, charts, bias, no_separate)
         self.cp_.css.registerProjection("ur5e", ArmProjection(self.cp_.css, context, trans_const, rot_const))
 
-    def plan(self, robot, end_conf, context, planner_type="KPIECE1", planning_time=30.0):
-        start_conf = robot.get_joint_positions()[self.joint_control_idx]
+    def plan(self, robot, start_conf, end_conf, context, planner_type="KPIECE1", planning_time=30.0):
+        # start_conf = robot.get_joint_positions()[self.joint_control_idx]
         
         start = ob.State(self.cp_.css)
         for i in range(self.dim):
@@ -212,7 +210,11 @@ class ArmCcontrainedPlanner():
         if not validityChecker.isValid(start, True) or not validityChecker.isValid(goal, True):
             print("Invalid Start or Goal")
             breakpoint()
-            return []
+        
+        # # assert validityChecker.isValid(start) and validityChecker.isValid(goal), "Invalid Start or Goal"
+        # if not validityChecker.isValid(start, True) or not validityChecker.isValid(goal, True):
+        #     print("Invalid Start or Goal")
+        #     breakpoint()
 
         self.cp_.setStartAndGoalStates(start, goal)
         self.cp_.setPlanner(planner_type, "ur5e")
@@ -221,11 +223,10 @@ class ArmCcontrainedPlanner():
         temp_res = self.cp_.ss.solve(planning_time)
         if temp_res.asString() == 'Exact solution':
             ou.OMPL_DEBUG("Exact solution found")
-
             path = self.cp_.ss.getSolutionPath()
 
-            # path_simp = og.PathSimplifier(si)
-            # res = path_simp.reduceVertices(path)
+            path_simp = og.PathSimplifier(si)
+            res = path_simp.reduceVertices(path)
 
             path_list = []
             for t in range(path.getStateCount()):
@@ -235,31 +236,3 @@ class ArmCcontrainedPlanner():
             return path_list
         else:
             return None
-
-        # # Solve the problem
-        # temp_res = self.cp_.ss.solve(planning_time)
-        # if temp_res.asString() == 'Exact solution':
-        #     path = self.cp_.ss.getSolutionPath()
-
-        #     if not path.check():
-        #         ou.OMPL_WARN("Path fails check!")
-        #     else:
-        #         ou.OMPL_WARN("Path check!")
-            
-        #     simplePath = self.cp_.ss.getSolutionPath()
-        #     ou.OMPL_INFORM("Simplified Path Length: %.3f -> %.3f" %
-        #                    (path.length(), simplePath.length()))
-
-        #     if not simplePath.check():
-        #         ou.OMPL_WARN("Simplified path fails check!")
-        #     else:
-        #         ou.OMPL_WARN("Simplified path check!")
-
-        #     path_list = []
-        #     for t in range(simplePath.getStateCount()):
-        #         state = path.getState(t)
-        #         path_list.append([state[0], state[1], state[2], state[3], state[4], state[5]])
-
-        #     return path_list
-        # else:
-        #     return None
