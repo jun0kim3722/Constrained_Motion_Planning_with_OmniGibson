@@ -165,7 +165,7 @@ class ArmValidAll(ob.StateValidityChecker):
 
     def isValid(self, dof_state, debug=False):
         joint_pos = th.tensor([dof_state[i] for i in range(self.dim)])
-        return not self.context.set_arm_and_detect_collision(joint_pos, True)
+        return not self.context.set_arm_and_detect_collision(joint_pos, debug)
 
 class ArmCcontrainedPlanner():
     def __init__(self, context, trans_const, rot_const, num_const, tolerance,

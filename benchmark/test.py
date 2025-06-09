@@ -97,7 +97,7 @@ cfg["objects"] = [
     #     "name": "box",
     #     "primitive_type": "Cube",
     #     "rgba": [1.0, 0, 0, 1.0],
-    #     "size": 0.30,
+    #     "size": 0.20,
     #     "position": [-2.34713, -2.06784, 0.95],
     # }
 ]
@@ -113,6 +113,7 @@ cfg["robots"] = [
         # "orientation": [ 0, 0, -0.7071068, 0.7071068],
         # "position": [0,0,0],
         "action_normalize": False,
+        # "grasping_mode" : "assisted",
         "controller_config":
         {
             'arm_0': {'name': 'JointController', 'use_delta_commands': False, 'command_input_limits': None}, 
@@ -173,7 +174,7 @@ teacup = env.scene.object_registry("name", "teacup")
 
 start_joints = [-0.82790005,-0.9197,1.4702001,-0.4496,1.3429,-3.1407]
 # goal_joints = np.array([0.4566701,-1.0224016,1.4694293,-0.44907653,1.3427804,-3.1414886])
-goal_joints = np.array([0.51173443, -1.14762792,  1.39123768, -1.81520227, -1.5707957, 0.51253089])
+goal_joints = np.array([0.51173443, -1.12711413,  1.44211166, -1.88738625, -1.57079507, 0.51332733]) # cup drop place
 
 
 # cup_pos = teacup.get_position_orientation()
@@ -193,37 +194,39 @@ for i in range(100):
     env.step(action)
 action['UR5e'] = np.concatenate((angle, [-1]), dtype="float32")
 env.step(action)
-env.step(action)
-env.step(action)
-env.step(action)
+
+# # for i in range(15):
+# while True:
+#     env.step(action)
+# action['UR5e'] = np.concatenate((angle, [0]), dtype="float32")
+# while True:
+#     env.step(action)
 
 
 # motion planning
 path = None
 with motion_plan_utils.PlanningContext(env, robot, teacup) as context:
-    # breakpoint() # sink_zexzrc_0
     # adj_start_joints = start_joints
     # adj_start_joints[1] -= 0.01
     # while True:
     #     # angle = np.random.uniform(-np.pi, np.pi)
-    #     # context.set_arm_and_detect_collision([angle ,-0.8224016,1.4694293,-0.44907653,1.3427804,-3.1414886], verbose=False)
-    #     context.set_arm_and_detect_collision(adj_start_joints, verbose=False)
+    #     # context.set_arm_and_detect_collision([0 ,-0.8224016,1.4694293,-0.44907653,1.3427804,-3.1414886], verbose=False)
+    #     # context.set_arm_and_detect_collision(goal_joints, verbose=False)
     #     og.sim.step()
 
     # set planner
     griper_pos, griper_rot = context.fk_solver.get_link_poses_euler(start_joints, [robot._eef_link_names])[robot._eef_link_names]
     rot_const = griper_rot
     rot_const[-1] = None
-    acp = ArmCcontrainedPlanner(context, trans_const=None, rot_const=rot_const, num_const=2, tolerance=np.deg2rad(20.0))
+    acp = ArmCcontrainedPlanner(context, trans_const=None, rot_const=rot_const, num_const=2, tolerance=np.deg2rad(15.0))
 
     adj_start_joints = start_joints
     adj_start_joints[1] -= 0.01
-    path = acp.plan(robot, start_joints.tolist(), goal_joints.tolist(), context)
+    path = acp.plan(robot, start_joints.tolist(), goal_joints.tolist(), context, planning_time=120.0)
 
     if path:
         path = get_pose_from_path(path)
         path.insert(0, start_joints)
-
 
 # path = [
 #     [-0.82790005,-1.0197,1.4702001,-0.4496,1.3429,-3.1407],
@@ -319,10 +322,8 @@ for _ in range(10000):
     #     breakpoint()
     # env.step([])
 
-    if _ == 10:
+    if _ == 5:
         execute_motion(env, path, False)
-
-    # motion_plan_utils.set_arm_and_detect_collision(context, joint_pos, verbose=True)
 
 
     # if joint_pos is not None:

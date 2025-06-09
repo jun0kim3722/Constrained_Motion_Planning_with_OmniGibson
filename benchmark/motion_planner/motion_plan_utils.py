@@ -88,25 +88,6 @@ class RobotCopy:
                     *link.get_position_orientation(), *og_robot.get_position_orientation()
                 )
 
-            # if obj:
-            #     for link in obj.links.values():
-            #         link_name = link.prim_path.split("/")[-1]
-            #         for mesh_name, mesh in link.collision_meshes.items():
-            #             split_path = mesh.prim_path.split("/")
-            #             copy_mesh_path = obj.prim_path  + "_copy" + "/" + link_name
-            #             # copy_mesh_path += f"_{split_path[-1]}" if split_path[-1] != "collisions" else ""
-            #             lazy.omni.usd.commands.CopyPrimCommand(mesh.prim_path, path_to=copy_mesh_path).do()
-            #             copy_mesh = lazy.omni.isaac.core.utils.prims.get_prim_at_path(copy_mesh_path)
-
-            #             relative_pose = T.relative_pose_transform(
-            #                 *mesh.get_position_orientation(), *link.get_position_orientation()
-            #             )
-
-            #             # ee_link_name = og_robot.eef_link_names[og_robot.default_arm]
-            #             ee_link_name = "right_outer_finger"
-            #             copy_robot_meshes[ee_link_name][mesh_name] = copy_mesh
-            #             copy_robot_meshes_relative_poses[ee_link_name][mesh_name] = relative_pose
-
             if obj:
                 from pxr import UsdPhysics
 
@@ -139,8 +120,6 @@ class RobotCopy:
                         copy_robot_meshes[ee_link_name][f"attached_obj_{obj_idx}"] = copy_mesh
                         copy_robot_meshes_relative_poses[ee_link_name][f"attached_obj_{obj_idx}"] = relative_pose
                         obj_idx += 1
-                
-                
 
             if robot_type == "simplified":
                 self.env.scene.remove_object(robot_to_copy)
@@ -158,7 +137,6 @@ class PlanningContext(object):
     """
 
     def __init__(self, env, robot, in_hand_obj=None, robot_copy_type="original"):
-
         self.env = env
         self.robot = robot
         self.in_hand_obj = in_hand_obj
@@ -278,25 +256,24 @@ class PlanningContext(object):
                 disabled_colliders += [link.prim_path for link in obj.links.values()]
 
         # Disable object in hand
-        obj_in_hand = self.robot._ag_obj_in_hand[self.robot.default_arm]
-        if obj_in_hand is not None:
-            disabled_colliders += [link.prim_path for link in obj_in_hand.links.values()]
+        if self.in_hand_obj is not None:
+            # ignore collision with in-hand object
+            disabled_colliders += [link.prim_path for link in self.in_hand_obj.links.values()]
+
+            # ignore collision with griper and copy in-hand object
+            obj_meshes = [link.GetPrimPath().pathString for link in robot_meshes_copy['ee_link'].values()]
+            robot_meshes = []
+            for robot_link in robot_meshes_copy.keys():
+                if 'finger' in robot_link or 'knuckle' in robot_link:
+                    for mesh in robot_meshes_copy[robot_link].values():
+                        self.disabled_collision_pairs_dict[mesh.GetPrimPath().pathString] += obj_meshes
+                        robot_meshes.append(mesh.GetPrimPath().pathString)
+        
+            for obj_mesh_path in obj_meshes:
+                self.disabled_collision_pairs_dict[obj_mesh_path] += robot_meshes
 
         for colliders in self.disabled_collision_pairs_dict.values():
             colliders += disabled_colliders
-        
-        if self.in_hand_obj:
-            robot_meshes_copy = self.robot_copy.meshes[self.robot_copy_type]
-            # /World/scene_0/controllable__ur5e__UR5e_copy/ee_link/attached_obj_31 collides with /World/scene_0/teacup/base_link
-            obj_meshes = [obj_link.prim.GetPrimPath().pathString for obj_link in self.in_hand_obj.links.values()]
-            robot_meshes = []
-            for robot_link in robot_meshes_copy.keys():
-                for mesh in robot_meshes_copy[robot_link].values():
-                    self.disabled_collision_pairs_dict[mesh.GetPrimPath().pathString] += obj_meshes
-                    robot_meshes.append(mesh.GetPrimPath().pathString)
-        
-            for obj_link in self.in_hand_obj.links.values():
-                self.disabled_collision_pairs_dict[obj_link.prim.GetPrimPath().pathString] = robot_meshes
         
     def get_collision_enabled_prims(self, root_prim):
         from pxr import Usd, UsdGeom, UsdPhysics
