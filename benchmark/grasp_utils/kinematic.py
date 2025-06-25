@@ -5,6 +5,7 @@ Set of utilities for helping to execute robot control
 import torch as th
 import numpy as np
 
+import json
 import omnigibson.lazy as lazy
 import omnigibson.utils.transform_utils as T
 from scipy.spatial.transform import Rotation as R
@@ -135,9 +136,9 @@ class IKSolver:
         # convert target pose to robot base frame
         target_pose_robot = np.dot(self.world2robot_homo, target_pose_homo)
         target_pose_pos = target_pose_robot[:3, 3]
-        # target_pose_rot = target_pose_robot[:3, :3]
-        target_pose_rot = R.from_matrix(target_pose_robot[:3, :3])# * R.from_euler('y', 90, degrees=True)
-        ik_target_pose = lazy.lula.Pose3(lazy.lula.Rotation3(target_pose_rot.as_matrix()), target_pose_pos)
+        target_pose_rot = target_pose_robot[:3, :3]
+        ik_target_pose = lazy.lula.Pose3(lazy.lula.Rotation3(target_pose_rot), target_pose_pos)
+        
         # Set the cspace seed and tolerance
         initial_joint_pos = self.reset_joint_pos if initial_joint_pos is None else np.array(initial_joint_pos)
         self.config.cspace_seeds = [initial_joint_pos]
@@ -152,7 +153,58 @@ class IKSolver:
             return th.tensor(ik_results.cspace_position, dtype=th.float32)
         else:
             return None
+    
+    def get_grasp(self, obj, offset=0.05):
+        # read grasp
+        grasp_file = "/data/og_dataset/objects/" + obj.category + "/" + obj.model + "/usd/grasp_results.json"
+        try:
+            with open(grasp_file, 'r') as f:
+                grasp_data = json.load(f)
 
+        except:
+            print("GRASP: {} does not exist!!".format(grasp_file))
+
+        # 
+        obj_loc = obj.get_position_orientation()
+        center_offset = obj.get_position_orientation()[0] - obj.aabb_center + th.tensor([0, 0, obj.aabb_extent[2] / 2.0])
+        obj_tran = obj_loc[0] - center_offset
+        obj_rot = obj_loc[1]
+        for grasp in grasp_data:
+            # calc grasping location
+            eef_pos = T.quat_apply(obj_loc[1], th.tensor(grasp["pos"])) + obj_tran
+
+            grasp_quat = th.tensor(grasp['quat'])
+            eef_quat = T.quat_multiply(T.quat_multiply(grasp_quat, th.tensor([0.5, 0.5, 0.5, 0.5])), obj_rot)
+
+            # calc offset location
+            off_set_pos = th.tensor(grasp["pos"]) + T.quat_apply(grasp_quat, th.tensor([-offset, 0.0, 0.0]))
+            eef_offset_pos = T.quat_apply(obj_loc[1], off_set_pos) + obj_tran
+
+            # solve IK
+            target_pose_homo = T.pose2mat([eef_pos, eef_quat])
+            joint_pos = self.solve(target_pose_homo = target_pose_homo)
+
+            offset_pose_homo = T.pose2mat([eef_offset_pos, eef_quat])
+            joint_offset_pos = self.solve(target_pose_homo = target_pose_homo)
+
+            if joint_pos is not None and joint_offset_pos is not None:
+                return joint_offset_pos, joint_pos
+        
+        return None
+
+# def xyz2omni(rot, as_quat=True):
+#     return [-np.pi/2, np.pi/2, 0]
+#     # return [np.pi/2, np.pi/2, 0]
+#         #  -x | y | Z   
+#     # return [rot[1], rot[2], rot[0]]
+#     # return [-1 * (rot[1] - np.pi/2), rot[2] - np.pi/2, rot[0]]
+
+#     new_rot = R.from_euler("xyz", [-1 * (rot[1] - np.pi/2), rot[2], rot[0]])
+
+#     if as_quat:
+#         return new_rot.as_quat()
+#     else:
+#         return new_rot.as_euler("xyz")
 
 @th.jit.script
 def orientation_error(desired, current):

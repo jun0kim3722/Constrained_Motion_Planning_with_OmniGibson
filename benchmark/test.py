@@ -2,11 +2,10 @@ import omnigibson as og
 
 import torch as th
 import numpy as np
+import json
 
 from omnigibson.utils.grasping_planning_utils import get_grasp_poses_for_object_sticky, get_grasp_position_for_open
 import omnigibson.utils.transform_utils as T
-
-from omnigibson.utils.usd_utils import CollisionAPI
 
 from grasp_utils.kinematic import IKSolver
 
@@ -16,25 +15,12 @@ from collections import OrderedDict
 
 GRASP_DIST = 0.15
 
-def plan_grasp(ik_solver, obj):
-    grasp_poses = get_grasp_poses_for_object_sticky(obj)
-    
-    for grasp_pos in grasp_poses:
-        target_pose_homo = T.pose2mat([grasp_pos[0][0], grasp_pos[0][1]])
-        joint_pos = ik_solver.solve(target_pose_homo = target_pose_homo)
-        
-        if joint_pos is not None:
-            print("Pos", grasp_pos[0][0])
-            return joint_pos
-    
-    return None
-
 def execute_controller(env, joints, is_griper_open):
     ctr = np.concatenate((joints, [1 if is_griper_open else -1]), dtype="float32")
     action = OrderedDict([('UR5e', ctr)])
     env.step(action)
-    env.step(action)
-    env.step(action)
+    # env.step(action)
+    # env.step(action)
 
 def execute_motion(env, joint_path, is_griper_open):
     for joints in joint_path:
@@ -71,13 +57,13 @@ cfg["objects"] = [
         "position": [-2.37511, -2.49872, 0.95],
         # "position": [-3.15968, -2.52066, 0.96],
     },
-    # {
-    #     "type": "DatasetObject",
-    #     "name": "knife",
-    #     "category": "carving_knife",
-    #     "model": "alekva",
-    #     "position": [-2.34713, -2.06784, 0.95],
-    # },
+    {
+        "type": "DatasetObject",
+        "name": "knife",
+        "category": "carving_knife",
+        "model": "alekva",
+        "position": [-2.34713, -2.06784, 0.95],
+    },
     # {
     #     "type": "DatasetObject",
     #     "name": "tablespoon",
@@ -155,7 +141,7 @@ ik_solver = IKSolver(
 
 # grasp position
 teacup = env.scene.object_registry("name", "teacup")
-# knife = env.scene.object_registry("name", "knife")
+knife = env.scene.object_registry("name", "knife")
 # tablespoon = env.scene.object_registry("name", "tablespoon")
 
 
@@ -180,18 +166,28 @@ goal_joints = np.array([0.51173443, -1.12711413,  1.44211166, -1.88738625, -1.57
 # cup_pos = teacup.get_position_orientation()
 # breakpoint()
 cup_pos = teacup.get_position_orientation()
-grasp_pos = cup_pos[0]
-grasp_pos[2] += GRASP_DIST
-pick_pos = T.pose2mat([grasp_pos, T.euler2quat(th.tensor([-np.pi,  0.0, 0.0]))])
-# pick_pos = T.pose2mat([cup_pos[0], T.euler2quat(th.tensor([-2.98777613,  0.12833831, -1.56089303]))])
-start_joints = ik_solver.solve(target_pose_homo = pick_pos)
+# grasp_pos = cup_pos[0]
+# grasp_pos[2] += GRASP_DIST
 
-for i in range(100):
-# while True:
+offset_joints, grasp_joints = ik_solver.get_grasp(knife)
+
+# breakpoint()
+
+# grasp_pos = cup_pos[0] + th.tensor([ 0.04549949, -0.0215362 ,  0.31178942])
+
+# pick_pos = T.pose2mat([grasp_pos, T.euler2quat(th.tensor([-np.pi,  0.0, 0.0]))])
+# # pick_pos = T.pose2mat([cup_pos[0], T.euler2quat(th.tensor([-2.98777613,  0.12833831, -1.56089303]))])
+# start_joints = ik_solver.solve(target_pose_homo = pick_pos)
+
+set_robot_to_joint(env, offset_joints, True)
+
+# for i in range(100):
+while True:
     action = env.action_space.sample()
     angle = np.array(start_joints)
     action['UR5e'] = np.concatenate((angle, [1]), dtype="float32")
     env.step(action)
+    print(robot.get_eef_orientation())
 action['UR5e'] = np.concatenate((angle, [-1]), dtype="float32")
 env.step(action)
 

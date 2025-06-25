@@ -5,16 +5,23 @@ Options for random actions, as well as selection of robot action space
 """
 
 import torch as th
+import numpy as np
+import yaml
+
 import omnigibson as og
 import omnigibson.utils.transform_utils as T
-from benchmark.grasp_utils.kinematic import IKSolver, FKSolver
-from omnigibson.utils.grasping_planning_utils import get_grasp_poses_for_object_sticky
-import yaml
-import numpy as np
+
+from grasp_utils.kinematic import IKSolver
+from motion_planner import motion_plan_utils
+from motion_planner.cont_planner import ArmCcontrainedPlanner
+
+from collections import OrderedDict
 
 # # Don't use GPU dynamics and use flatcache for performance boost
 # gm.USE_GPU_DYNAMICS = False
 # gm.ENABLE_FLATCACHE = True
+
+GRASP_DIST = 0.15
 
 def read_yaml(file_name):
     with open(file_name, "r") as file:
@@ -22,17 +29,28 @@ def read_yaml(file_name):
     
     return cfg
 
-def plan_grasp(robot, ik_solver, obj):
-    grasp_poses = get_grasp_poses_for_object_sticky(obj)
+def execute_controller(env, joints, is_griper_open):
+    ctr = np.concatenate((joints, [1 if is_griper_open else -1]), dtype="float32")
+    action = OrderedDict([('UR5e', ctr)])
+    env.step(action)
+    env.step(action)
+    env.step(action)
+
+def execute_motion(env, joint_path, is_griper_open):
+    for joints in joint_path:
+        execute_controller(env, joints, is_griper_open)
+
+def get_pose_from_path(path_list, frame_rate=10):
+    pos_list = []
+    for path_idx in range(1, len(path_list)):
+        start_pos = np.array(path_list[path_idx - 1])
+        end_pos = np.array(path_list[path_idx])
+        delta = (end_pos - start_pos) / frame_rate
+
+        for i in range(frame_rate + 1):
+            pos_list.append((start_pos + (delta * i)).tolist())
     
-    for grasp_pos in grasp_poses:
-        target_pose_homo = T.pose2mat([grasp_pos[0][0], grasp_pos[0][1]])
-        joint_pos = ik_solver.solve(target_pose_homo = target_pose_homo)
-        
-        if joint_pos is not None:
-            return joint_pos
-    
-    return None
+    return pos_list
 
 def main(random_selection=False, headless=False, short_exec=False, quickstart=False):
     """
@@ -71,25 +89,24 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     teacup = env.scene.object_registry("name", "teacup")
     knife = env.scene.object_registry("name", "knife")
     tablespoon = env.scene.object_registry("name", "tablespoon")
-    teacup_joints = plan_grasp(robot, ik_solver, teacup)
-    knife_joints = plan_grasp(robot, ik_solver, knife)
-    tablespoon_joints = plan_grasp(robot, ik_solver, tablespoon)
+    offset_joints, grasp_joints = ik_solver.get_grasp(knife)
 
-    # Other helpful user info
-    print("Running demo.")
-    print("Press ESC to quit")
+    # motion planning
+    path = None
+    with motion_plan_utils.PlanningContext(env, robot, teacup) as context:
+        # set planner
+        griper_pos, griper_rot = context.fk_solver.get_link_poses_euler(start_joints, [robot._eef_link_names])[robot._eef_link_names]
+        rot_const = griper_rot
+        rot_const[-1] = None
+        acp = ArmCcontrainedPlanner(context, trans_const=None, rot_const=rot_const, num_const=2, tolerance=np.deg2rad(15.0))
 
-    # Loop control until user quits
-    max_steps = -1 if not short_exec else 10000
-    step = 0
+        adj_start_joints = start_joints
+        adj_start_joints[1] -= 0.01
+        path = acp.plan(robot, start_joints.tolist(), goal_joints.tolist(), context, planning_time=120.0)
 
-    while step != max_steps:
-        action = env.action_space.sample()
-        action['UR5e'] = np.concatenate((teacup_joints, [-1]), dtype="float32")
-        env.step(action)
-
-    # Always shut down the environment cleanly at the end
-    og.clear()
+        if path:
+            path = get_pose_from_path(path)
+            path.insert(0, start_joints)
 
 
 if __name__ == "__main__":
