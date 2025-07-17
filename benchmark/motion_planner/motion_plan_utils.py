@@ -10,11 +10,15 @@ import torch as th
 import omnigibson as og
 import omnigibson.lazy as lazy
 import omnigibson.utils.transform_utils as T
-from omnigibson.utils.usd_utils import GripperRigidContactAPI
-from omnigibson.utils.sim_utils import prim_paths_to_rigid_prims
+from omnigibson.utils.usd_utils import delete_or_deactivate_prim
 
 from omnigibson.robots import *
 from grasp_utils.kinematic import FKSolver
+
+from ompl import base as ob
+from ompl import geometric as omplg
+
+
 
 
 class RobotCopy:
@@ -30,7 +34,12 @@ class RobotCopy:
             "simplified": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
         }
     
-    def __init__(self, og_robot, obj=None):
+    def __init__(self, og_robot, robot_joints=None, obj=None):
+        self.fk_solver = FKSolver(
+            robot_description_path=og_robot.robot_arm_descriptor_yamls[og_robot.default_arm],
+            robot_urdf_path=og_robot.urdf_path,
+        )
+
         self.prims = {}
         self.meshes = {}
         self.relative_poses = {}
@@ -39,6 +48,7 @@ class RobotCopy:
             "original": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
             "simplified": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
         }
+
         robots_to_copy = {"original": {"robot": og_robot, "copy_path": og_robot.prim_path + "_copy"}}
 
         for robot_type, rc in robots_to_copy.items():
@@ -55,17 +65,12 @@ class RobotCopy:
             copy_robot.GetAttribute("xformOp:translate").Set(translation)
             orientation = reset_pose[1][[3, 0, 1, 2]]
             copy_robot.GetAttribute("xformOp:orient").Set(lazy.pxr.Gf.Quatd(*orientation.tolist()))
-
-            robot_to_copy = None
-            if robot_type == "simplified":
-                robot_to_copy = rc["robot"]
-                self.env.scene.add_object(robot_to_copy)
-            else:
-                robot_to_copy = rc["robot"]
+            robot_to_copy = rc["robot"]
 
             # Copy robot meshes
             for link in robot_to_copy.links.values():
                 link_name = link.prim_path.split("/")[-1]
+
                 for mesh_name, mesh in link.collision_meshes.items():
                     split_path = mesh.prim_path.split("/")
                     copy_mesh_path = rc["copy_path"] + "/" + link_name
@@ -112,42 +117,60 @@ class RobotCopy:
 
                         copy_mesh = lazy.omni.isaac.core.utils.prims.get_prim_at_path(copy_mesh_path)
 
-                        relative_pose = T.relative_pose_transform(
-                            *mesh.get_position_orientation(),
-                            *og_robot.links[ee_link_name].get_position_orientation()
-                        )
+                        if robot_joints is not None:
+                            ee_poses = self.fk_solver.get_link_poses(robot_joints, [ee_link_name])[ee_link_name]
+                            offset_poses = (
+                                ee_poses[0] + og_robot.get_position_orientation()[0],
+                                T.quat_multiply(ee_poses[1], og_robot.get_position_orientation()[1])
+                            )
+
+                            relative_pose = T.relative_pose_transform(
+                                *mesh.get_position_orientation(),
+                                *offset_poses
+                            )
+
+                        else:
+                            relative_pose = T.relative_pose_transform(
+                                *mesh.get_position_orientation(),
+                                *og_robot.links[ee_link_name].get_position_orientation()
+                            )
 
                         copy_robot_meshes[ee_link_name][f"attached_obj_{obj_idx}"] = copy_mesh
                         copy_robot_meshes_relative_poses[ee_link_name][f"attached_obj_{obj_idx}"] = relative_pose
                         obj_idx += 1
-
-            if robot_type == "simplified":
-                self.env.scene.remove_object(robot_to_copy)
 
             self.prims[robot_type] = copy_robot
             self.meshes[robot_type] = copy_robot_meshes
             self.relative_poses[robot_type] = copy_robot_meshes_relative_poses
             self.links_relative_poses[robot_type] = copy_robot_links_relative_poses
 
-        og.sim.step() # maybe add obj link?
+        og.sim.step()
+
+    def remove(self):
+        copy_path = self.prims["original"].GetPath().pathString
+        if not delete_or_deactivate_prim(copy_path):
+            og.log.error("Copy Robot Delete Failed!!!!")
 
 class PlanningContext(object):
     """
     A context manager that sets up a robot copy for collision checking in planning.
     """
 
-    def __init__(self, env, robot, in_hand_obj=None, robot_copy_type="original"):
+    def __init__(self, env, robot, robot_joints=None, in_hand_obj=None,
+                 disabled_collision_pairs_dict={}, robot_copy_type="original"):
         self.env = env
         self.robot = robot
-        self.in_hand_obj = in_hand_obj
 
-        robot_copy = RobotCopy(robot, in_hand_obj)
+        self.in_hand_obj = in_hand_obj
+        self.robot_joints = robot_joints
+        robot_copy = RobotCopy(robot, robot_joints, in_hand_obj)
         self.robot_copy = robot_copy
-        self.robot_copy_type = robot_copy_type if robot_copy_type in robot_copy.prims.keys() else "original"
-        self.disabled_collision_pairs_dict = {}
-        
+
         self.offset = (self.robot.get_position_orientation()[0] - self.robot_copy.reset_pose['original'][0],
                        self.robot.get_position_orientation()[1] - self.robot_copy.reset_pose['original'][1])
+        
+        self.robot_copy_type = robot_copy_type if robot_copy_type in robot_copy.prims.keys() else "original"
+        self.disabled_collision_pairs_dict = disabled_collision_pairs_dict
 
         self._assemble_robot_copy()
         self._construct_disabled_collision_pairs()
@@ -161,13 +184,8 @@ class PlanningContext(object):
         return self
 
     def __exit__(self, *args):
-        # self._set_prim_pose(
-        #     self.robot_copy.prims[self.robot_copy_type], self.robot_copy.reset_pose[self.robot_copy_type]
-        # )
-
-        for link_name, meshes in self.robot_copy.meshes[self.robot_copy_type].items():
-            for mesh_name, copy_mesh in meshes.items():
-                self._set_prim_pose(copy_mesh, self.robot_copy.reset_pose[self.robot_copy_type])
+        self.robot_copy.remove()
+        
 
     def _assemble_robot_copy(self):
         self.fk_solver = FKSolver(
@@ -176,9 +194,12 @@ class PlanningContext(object):
         )
 
         arm_links = self.robot.arm_link_names[self.robot.default_arm]
-        joint_control_idx = self.robot.arm_control_idx[self.robot.default_arm]
-        joint_pos = self.robot.get_joint_positions()[joint_control_idx]
-        link_poses = self.fk_solver.get_link_poses(joint_pos, arm_links)
+        if self.robot_joints is None:
+            joint_control_idx = self.robot.arm_control_idx[self.robot.default_arm]
+            joint_pos = self.robot.get_joint_positions()[joint_control_idx]
+            link_poses = self.fk_solver.get_link_poses(joint_pos, arm_links)
+        else:
+            link_poses = self.fk_solver.get_link_poses(self.robot_joints, arm_links)
 
         # Assemble robot meshes
         for link_name, meshes in self.robot_copy.meshes[self.robot_copy_type].items():
@@ -360,93 +381,80 @@ class PlanningContext(object):
 
         return valid_hit
 
-def plan_arm_motion(robot, end_conf, context, planning_time=30.0, torso_fixed=True):
-    """
-    Plans an arm motion to a final joint position
+class ArmValidAll(ob.StateValidityChecker):
+    def __init__(self, si, context):
+        super().__init__(si)
+        self.context = context
+        robot = context.robot
+        self.dim = len(robot.arm_control_idx[robot.default_arm])
 
-    Args:
-        robot (BaseRobot): Robot object to plan for
-        end_conf (Iterable): Final joint position to plan to
-        context (PlanningContext): Context to plan in that includes the robot copy
-        planning_time (float): Time to plan for
+    def isValid(self, dof_state, debug=False):
+        joint_pos = th.tensor([dof_state[i] for i in range(self.dim)])
+        return not self.context.set_arm_and_detect_collision(joint_pos, debug)
 
-    Returns:
-        Array of arrays: Array of joint positions that the robot should navigate to
-    """
-    from ompl import base as ob
-    from ompl import geometric as ompl_geo
+class ArmPlanner():
+    def __init__(self, context):
 
-    if torso_fixed:
-        joint_control_idx = robot.arm_control_idx[robot.default_arm]
-        dim = len(joint_control_idx)
-        initial_joint_pos = robot.get_joint_positions()[joint_control_idx]
-        control_idx_in_joint_pos = th.arange(dim)
-    else:
-        joint_control_idx = th.cat([robot.trunk_control_idx, robot.arm_control_idx[robot.default_arm]])
-        dim = len(joint_control_idx)
-        if "combined" in robot.robot_arm_descriptor_yamls:
-            joint_combined_idx = th.cat([robot.trunk_control_idx, robot.arm_control_idx["combined"]])
-            initial_joint_pos = th.tensor(robot.get_joint_positions()[joint_combined_idx])
-            control_idx_in_joint_pos = th.where(th.isin(joint_combined_idx, joint_control_idx))[0]
+        robot = context.robot
+        self.context = context
+        self.joint_control_idx = robot.arm_control_idx[robot.default_arm]
+        self.dim = len(self.joint_control_idx)
+
+        joint_limits = zip(robot.joint_lower_limits[:self.dim].tolist(), robot.joint_upper_limits[:self.dim].tolist())
+        
+        self.space_ = ob.RealVectorStateSpace(0)
+        for lower_bound, upper_bound in joint_limits:
+            self.space_.addDimension(lower_bound, upper_bound)
+
+        self.si_ = ob.SpaceInformation(self.space_)
+
+
+    def plan(self, goal_joints, context, planning_time=30.0):
+        start_conf = context.robot.get_joint_positions()[self.joint_control_idx]
+        start = ob.State(self.space_)
+        for i in range(self.dim):
+            start[i] = float(start_conf[i])
+
+        goal = ob.State(self.space_)
+        for i in range(self.dim):
+            goal[i] = float(goal_joints[i])
+
+        validityChecker = ArmValidAll(self.si_, context)
+        self.si_.setStateValidityChecker(validityChecker)
+        self.si_.setStateValidityCheckingResolution(0.0005)
+        self.si_.setup()
+
+        if not validityChecker.isValid(start, True) or not validityChecker.isValid(goal, True):
+            og.log.warning("Invalid Start or Goal from ArmPlanner")
+            return None
+
+        pdef = ob.ProblemDefinition(self.si_)
+        pdef.setStartAndGoalStates(start, goal)
+        shortestPathObjective = ob.PathLengthOptimizationObjective(self.si_)
+        pdef.setOptimizationObjective(shortestPathObjective)
+
+        optimizingPlanner = omplg.RRTConnect(self.si_)
+        optimizingPlanner.setProblemDefinition(pdef)
+
+        optimizingPlanner.setRange(1000000)
+        optimizingPlanner.setup()
+        
+        temp_res = optimizingPlanner.solve(planning_time)
+
+        if temp_res.asString() == 'Exact solution':
+            path = pdef.getSolutionPath()
+
+            path_simp = omplg.PathSimplifier(self.si_)
+
+            res = path_simp.reduceVertices(path)
+
+            path_list = []
+
+            for t in range(path.getStateCount()):
+                state = path.getState(t)
+                path_list.append([state[0], state[1], state[2], state[3], state[4], state[5]])
+
+            return path_list
         else:
-            initial_joint_pos = th.tensor(robot.get_joint_positions()[joint_control_idx])
-            control_idx_in_joint_pos = th.arange(dim)
-
-    def state_valid_fn(q, verbose=False):
-        joint_pos = initial_joint_pos
-        joint_pos[control_idx_in_joint_pos] = th.tensor([q[i] for i in range(dim)])
-        return not set_arm_and_detect_collision(joint_pos, verbose=verbose)
-
-    # create an SE2 state space
-    space = ob.RealVectorStateSpace(dim)
-
-    # set lower and upper bounds
-    bounds = ob.RealVectorBounds(dim)
-    all_joints = list(robot.joints.values())
-    arm_joints = [all_joints[i] for i in joint_control_idx.tolist()]
-    for i, joint in enumerate(arm_joints):
-        if end_conf[i] > joint.upper_limit:
-            end_conf[i] = joint.upper_limit
-        if end_conf[i] < joint.lower_limit:
-            end_conf[i] = joint.lower_limit
-        bounds.setLow(i, float(joint.lower_limit))
-        bounds.setHigh(i, float(joint.upper_limit))
-    space.setBounds(bounds)
-
-    # create a simple setup object
-    ss = ompl_geo.SimpleSetup(space)
-    ss.setStateValidityChecker(ob.StateValidityCheckerFn(state_valid_fn))
-
-    si = ss.getSpaceInformation()
-    planner = ompl_geo.BITstar(si)
-    ss.setPlanner(planner)
-
-    start_conf = robot.get_joint_positions()[joint_control_idx]
-    start = ob.State(space)
-    for i in range(dim):
-        start[i] = float(start_conf[i])
-
-    goal = ob.State(space)
-    for i in range(dim):
-        goal[i] = float(end_conf[i])
-    ss.setStartAndGoalStates(start, goal)
-
-    # if the start pose or the goal pose collides, abort
-    if not state_valid_fn(start, verbose=True) or not state_valid_fn(goal, verbose=True):
-        return
-
-    # this will automatically choose a default planner with
-    # default parameters
-    solved = ss.solve(planning_time)
-
-    if solved:
-        # try to shorten the path
-        ss.simplifySolution()
-
-        sol_path = ss.getSolutionPath()
-        return_path = []
-        for i in range(sol_path.getStateCount()):
-            joint_pos = th.tensor([sol_path.getState(i)[j] for j in range(dim)], dtype=th.float32)
-            return_path.append(joint_pos)
-        return return_path
-    return None
+            return None
+        

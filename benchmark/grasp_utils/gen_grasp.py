@@ -9,6 +9,7 @@ import os
 def omni2xyz(rot, as_quat=True):
     # new_rot = R.from_euler("xyz", [rot[2], np.pi/2 - rot[0], rot[1]])
     euler = R.from_euler("xyz", rot)
+    # new_rot = euler * R.from_quat([-0.5, 0.5, -0.5, -0.5])
     new_rot = euler * R.from_quat([0.5, -0.5, -0.5, -0.5])
     
 
@@ -126,7 +127,7 @@ def extract_point_clouds(depth, K, segmap=None, rgb=None, z_range=[0.2,4.0], seg
 
 #         return target_pos, target_quat
 
-def calc_grasp_pos(grasp_mat, cam_rot, cam_tran, rot_idx, offset=0.1):
+def calc_grasp_pos(grasp_mat, cam_rot, cam_tran, rot_idx, offset=0.02):
         # calc grasp_rot
         grasp_rot = grasp_mat[:3, :3]
         grasp_rot = R.from_quat(R.from_matrix(grasp_mat[:3,:3]).as_quat()) #convert 3x3 into rot
@@ -145,7 +146,7 @@ def calc_grasp_pos(grasp_mat, cam_rot, cam_tran, rot_idx, offset=0.1):
         # calc grasp_tran
         grasp_tran = grasp_mat[:3, 3]
         mat_rot = R.from_quat([-0.5, 0.5, -0.5, 0.5])
-        grasp_tran = mat_rot.apply(grasp_tran)# + grasp_rot.apply([-offset, 0.0, 0.0])
+        grasp_tran = mat_rot.apply(grasp_tran) + grasp_rot.apply([-offset, 0.0, 0.0])
 
         # grasp in global coord
         target_quat = (extra_rot * (cam_rot_quat * grasp_rot)).as_quat()
@@ -153,9 +154,11 @@ def calc_grasp_pos(grasp_mat, cam_rot, cam_tran, rot_idx, offset=0.1):
 
         return target_pos, target_quat
 
-def read_grasp(file_name, index):
+def read_grasp(file_name, index, new_pc):
     try:
         data = np.load(file_name, allow_pickle=True)
+        rac = robot_arm_configuration("../assets/urdf/ur5e/meshes/collision/", np.array([-0.4, 0.0, 0.0]))
+
     except:
         print("GRASP: {} does not exist!!".format(file_name))
         return None
@@ -169,6 +172,16 @@ def read_grasp(file_name, index):
         grasp_mat = grasp_data[i]
 
         grasp_pos, grasp_quat = calc_grasp_pos(grasp_mat, CAM_ROT, CAM_TRAN, index)
+
+        grasp_euler = R.from_quat(grasp_quat).as_euler('xyz')
+
+        # joints = rac.inverse_kinematics(grasp_pos, grasp_euler, viz=False)
+        # if joints is not None:
+        #     print(grasp_euler, i)
+        #     st = rac.check_collision_models(joints, pcd=new_pc)
+
+        #     if 'y' in input("Y or N"):
+        #         print("grasp added!!")
         grasps.append({"pos":grasp_pos.tolist(), "quat":grasp_quat.tolist()})
 
     return grasps
@@ -213,7 +226,8 @@ def get_grasp(obj_dir, robot_pos=[-0.4, 0.0, 0.0], viz=False):
             # plt.show()
             pc_full, pc_segments, pc_colors, new_pc = extract_point_clouds(data["depth"], data["K"], segmap=data["seg"], rgb=data["rgb"], skip_border_objects=False)
 
-        grasps = read_grasp(cg_file_name, i)
+        grasps = read_grasp(cg_file_name, i, new_pc)
+
         total_grasps += grasps
 
     total_grasps = filter_grasps(total_grasps)
@@ -302,4 +316,4 @@ if __name__ == "__main__":
             item_path = os.path.join(obj_dir, item) + "/usd"
             if os.path.isdir(item_path):
                 print("--------------OPENING: " + item_path +  "--------------")
-                get_grasp(item_path, viz=True)
+                get_grasp(item_path, viz=False)

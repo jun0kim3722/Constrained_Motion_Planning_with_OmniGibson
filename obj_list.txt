@@ -1,5 +1,7 @@
-acetone_atomizer
+soda_cup
 carving_knife
 teacup
+coffee_cup
+mug
 tablespoon
 jar_of_sugar

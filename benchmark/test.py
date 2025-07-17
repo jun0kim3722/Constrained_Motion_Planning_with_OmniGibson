@@ -10,7 +10,7 @@ import omnigibson.utils.transform_utils as T
 from grasp_utils.kinematic import IKSolver
 
 from motion_planner import motion_plan_utils
-from motion_planner.cont_planner import ArmCcontrainedPlanner
+from motion_planner.constrained_planner import ArmCcontrainedPlanner
 from collections import OrderedDict
 
 GRASP_DIST = 0.15
@@ -25,6 +25,12 @@ def execute_controller(env, joints, is_griper_open):
 def execute_motion(env, joint_path, is_griper_open):
     for joints in joint_path:
         execute_controller(env, joints, is_griper_open)
+
+def set_robot_to(env, robot, joint_angles, is_griper_open):
+    joint_angles = th.tensor(joint_angles)
+    while (robot.get_joint_positions()[:6] - joint_angles > 0.02).any():
+        execute_controller(env, joint_angles, is_griper_open)
+        print(robot.get_joint_positions()[:6], joint_angles)
 
 def get_pose_from_path(path_list, frame_rate=10):
     pos_list = []
@@ -59,11 +65,19 @@ cfg["objects"] = [
     },
     {
         "type": "DatasetObject",
-        "name": "knife",
-        "category": "carving_knife",
-        "model": "alekva",
-        "position": [-2.34713, -2.06784, 0.95],
+        "name": "teacup",
+        "category": "teacup",
+        "model": "vckahe",
+        "position": [-2.37511, -2.49872, 0.95],
     },
+    
+    # {
+    #     "type": "DatasetObject",
+    #     "name": "knife",
+    #     "category": "carving_knife",
+    #     "model": "alekva",
+    #     "position": [-2.34713, -2.06784, 0.95],
+    # },
     # {
     #     "type": "DatasetObject",
     #     "name": "tablespoon",
@@ -179,7 +193,10 @@ offset_joints, grasp_joints = ik_solver.get_grasp(knife)
 # # pick_pos = T.pose2mat([cup_pos[0], T.euler2quat(th.tensor([-2.98777613,  0.12833831, -1.56089303]))])
 # start_joints = ik_solver.solve(target_pose_homo = pick_pos)
 
-set_robot_to_joint(env, offset_joints, True)
+
+
+breakpoint()
+set_robot_to(env, robot, offset_joints, is_griper_open=True)
 
 # for i in range(100):
 while True:
@@ -187,7 +204,7 @@ while True:
     angle = np.array(start_joints)
     action['UR5e'] = np.concatenate((angle, [1]), dtype="float32")
     env.step(action)
-    print(robot.get_eef_orientation())
+    print(robot.get_joint_positions()[:6])
 action['UR5e'] = np.concatenate((angle, [-1]), dtype="float32")
 env.step(action)
 

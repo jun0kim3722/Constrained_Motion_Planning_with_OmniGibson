@@ -8,7 +8,6 @@ import numpy as np
 import json
 import omnigibson.lazy as lazy
 import omnigibson.utils.transform_utils as T
-from scipy.spatial.transform import Rotation as R
 
 
 class FKSolver:
@@ -80,11 +79,79 @@ class FKSolver:
 
             # get orientation
             rotation_lula = pose3_lula.rotation
-            link_orientation = T.quat2euler(th.tensor([rotation_lula.x(), rotation_lula.y(), rotation_lula.z(), rotation_lula.w()]))
+            rotation = T.quat_multiply(
+                th.tensor([rotation_lula.x(), rotation_lula.y(), rotation_lula.z(), rotation_lula.w()]),
+                th.tensor([-0.5, 0.5, -0.5, -0.5])
+            )
+            link_orientation = T.quat2euler(rotation)
 
-            link_poses[link_name] = (link_position.numpy(), link_orientation.numpy())
+            link_poses[link_name] = (link_position, link_orientation)
         return link_poses
 
+    def get_link_poses_quat(
+        self,
+        joint_positions,
+        link_names,
+    ):
+        """
+        Given @joint_positions, get poses of the desired links (specified by @link_names)
+
+        Args:
+            joint positions (n-array): Joint positions in configuration space
+            link_names (list): List of robot link names we want to specify (e.g. "gripper_link")
+
+        Returns:
+            link_poses (dict): Dictionary mapping each robot link name to its pose
+        """
+        link_poses = {}
+        for link_name in link_names:
+            pose3_lula = self.kinematics.pose(joint_positions, link_name)
+
+            # get position
+            link_position = th.tensor(pose3_lula.translation, dtype=th.float32)
+
+            # get orientation
+            rotation_lula = pose3_lula.rotation
+            rotation = T.quat_multiply(
+                th.tensor([rotation_lula.x(), rotation_lula.y(), rotation_lula.z(), rotation_lula.w()]),
+                th.tensor([-0.5, 0.5, -0.5, -0.5])
+            )
+
+            link_poses[link_name] = (link_position, rotation)
+        return link_poses
+
+    def get_link_poses_axisangle(
+        self,
+        joint_positions,
+        link_names,
+    ):
+        """
+        Given @joint_positions, get poses of the desired links (specified by @link_names)
+
+        Args:
+            joint positions (n-array): Joint positions in configuration space
+            link_names (list): List of robot link names we want to specify (e.g. "gripper_link")
+
+        Returns:
+            link_poses (dict): Dictionary mapping each robot link name to its pose
+        """
+        link_poses = {}
+        for link_name in link_names:
+            pose3_lula = self.kinematics.pose(joint_positions, link_name)
+
+            # get position
+            link_position = th.tensor(pose3_lula.translation, dtype=th.float32)
+
+            # get orientation
+            rotation_lula = pose3_lula.rotation
+            rotation = T.quat_multiply(
+                th.tensor([rotation_lula.x(), rotation_lula.y(), rotation_lula.z(), rotation_lula.w()]),
+                th.tensor([-0.5, 0.5, -0.5, -0.5])
+            )
+            axisangle = T.quat2axisangle(rotation)
+
+            link_poses[link_name] = (link_position, axisangle)
+        return link_poses
 
 class IKSolver:
     """
@@ -153,8 +220,61 @@ class IKSolver:
             return th.tensor(ik_results.cspace_position, dtype=th.float32)
         else:
             return None
+        
+    def solve_newcoord(
+        self,
+        trans,
+        rot,
+        position_tolerance=0.01,
+        orientation_tolerance=0.05,
+        position_weight=1.0,
+        orientation_weight=0.05,
+        max_iterations=150,
+        initial_joint_pos=None,
+    ):
+        """
+        Backs out joint positions to achieve desired @target_pos and @target_quat
+
+        Args:
+            target_pose_homo (np.ndarray): [4, 4] homogeneous transformation matrix of the target pose in world frame
+            position_tolerance (float): Maximum position error (L2-norm) for a successful IK solution
+            orientation_tolerance (float): Maximum orientation error (per-axis L2-norm) for a successful IK solution
+            position_weight (float): Weight for the relative importance of position error during CCD
+            orientation_weight (float): Weight for the relative importance of position error during CCD
+            max_iterations (int): Number of iterations used for each cyclic coordinate descent.
+            initial_joint_pos (None or n-array): If specified, will set the initial cspace seed when solving for joint
+                positions. Otherwise, will use self.reset_joint_pos
+
+        Returns:
+            ik_results (lazy.lula.CyclicCoordDescentIkResult): IK result object containing the joint positions and other information.
+        """
+        # convert target pose to robot base frame
+        if len(rot) == 3:
+            rot = T.euler2quat(rot)
+
+        new_quat = T.quat_multiply(rot, th.tensor([0.5, 0.5, 0.5, 0.5]))
+        target_pose_homo = T.pose2mat([trans, new_quat])
+        target_pose_robot = np.dot(self.world2robot_homo, target_pose_homo)
+        target_pose_pos = target_pose_robot[:3, 3]
+        target_pose_rot = target_pose_robot[:3, :3]
+        ik_target_pose = lazy.lula.Pose3(lazy.lula.Rotation3(target_pose_rot), target_pose_pos)
+        
+        # Set the cspace seed and tolerance
+        initial_joint_pos = self.reset_joint_pos if initial_joint_pos is None else np.array(initial_joint_pos)
+        self.config.cspace_seeds = [initial_joint_pos]
+        self.config.position_tolerance = position_tolerance
+        self.config.orientation_tolerance = orientation_tolerance
+        self.config.ccd_position_weight = position_weight
+        self.config.ccd_orientation_weight = orientation_weight
+        self.config.max_num_descents = max_iterations
+        # Compute target joint positions
+        ik_results = lazy.lula.compute_ik_ccd(self.kinematics, ik_target_pose, self.eef_name, self.config)
+        if ik_results.success:
+            return th.tensor(ik_results.cspace_position, dtype=th.float32)
+        else:
+            return None
     
-    def get_grasp(self, obj, offset=0.05):
+    def get_grasp(self, obj, offset=0.1):
         # read grasp
         grasp_file = "/data/og_dataset/objects/" + obj.category + "/" + obj.model + "/usd/grasp_results.json"
         try:
@@ -162,13 +282,13 @@ class IKSolver:
                 grasp_data = json.load(f)
 
         except:
-            print("GRASP: {} does not exist!!".format(grasp_file))
+            raise Exception(f"GRASP: {grasp_file} does not exist!!")
 
-        # 
         obj_loc = obj.get_position_orientation()
         center_offset = obj.get_position_orientation()[0] - obj.aabb_center + th.tensor([0, 0, obj.aabb_extent[2] / 2.0])
         obj_tran = obj_loc[0] - center_offset
         obj_rot = obj_loc[1]
+        grasp_list = []
         for grasp in grasp_data:
             # calc grasping location
             eef_pos = T.quat_apply(obj_loc[1], th.tensor(grasp["pos"])) + obj_tran
@@ -185,26 +305,15 @@ class IKSolver:
             joint_pos = self.solve(target_pose_homo = target_pose_homo)
 
             offset_pose_homo = T.pose2mat([eef_offset_pos, eef_quat])
-            joint_offset_pos = self.solve(target_pose_homo = target_pose_homo)
+            joint_offset_pos = self.solve(target_pose_homo = offset_pose_homo)
 
             if joint_pos is not None and joint_offset_pos is not None:
-                return joint_offset_pos, joint_pos
+                grasp_list.append([joint_offset_pos, joint_pos])
         
-        return None
-
-# def xyz2omni(rot, as_quat=True):
-#     return [-np.pi/2, np.pi/2, 0]
-#     # return [np.pi/2, np.pi/2, 0]
-#         #  -x | y | Z   
-#     # return [rot[1], rot[2], rot[0]]
-#     # return [-1 * (rot[1] - np.pi/2), rot[2] - np.pi/2, rot[0]]
-
-#     new_rot = R.from_euler("xyz", [-1 * (rot[1] - np.pi/2), rot[2], rot[0]])
-
-#     if as_quat:
-#         return new_rot.as_quat()
-#     else:
-#         return new_rot.as_euler("xyz")
+        if not grasp_list:
+            raise Exception("Object is not graspable!!")
+        
+        return grasp_list
 
 @th.jit.script
 def orientation_error(desired, current):

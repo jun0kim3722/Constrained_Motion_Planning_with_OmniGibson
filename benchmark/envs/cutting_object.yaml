@@ -1,0 +1,42 @@
+config:
+  scene:
+    type: "InteractiveTraversableScene"
+    scene_model: "Pomaria_1_int"
+
+  robots:
+    - type: "UR5e"
+      name: "UR5e"
+      obs_modalities: ["rgb", "depth"]
+      position: [-3.1, -2, 1.0]
+      action_normalize: False
+      controller_config:
+        arm_0:
+          name: JointController
+          use_delta_commands: False
+          command_input_limits: null
+
+        gripper_0:
+          name: MultiFingerGripperController
+          mode: binary
+
+task:
+  task_name: Cutting object
+
+  actions:
+    grasp: ["grasp_obj", {rot : null, trans : null}]
+    hover: ["target_obj", {rot : null, trans : null}]
+    cut: ["target_obj", {rot : "xyz", trans : "xy"}]
+
+  objects:
+    base_height: 1.0
+
+    to_add:
+      grasp_obj: {carving_knife : ["alekva"]}
+      target_obj: ["cucumber", "apple", "buttermilk_pancake", "eggplant"]
+    
+    relation: on_top
+    areas: ["countertop_tpuwys_4", "countertop_tpuwys_5"]
+
+cam_pos:
+  position: [-0.18768, -1.86944, 2.22927]
+  orientation: [0.37, 0.39, 0.61, 0.58]
