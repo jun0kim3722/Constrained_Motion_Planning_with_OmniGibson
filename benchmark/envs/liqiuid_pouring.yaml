@@ -32,7 +32,7 @@ config:
     - type: "UR5e"
       name: "UR5e"
       obs_modalities: ["rgb", "depth"]
-      position: [-3.1, -2, 1.0]
+      position: [-3.1, -2, 0.8]
       action_normalize: False
       controller_config:
         arm_0:
@@ -51,7 +51,7 @@ task:
     grasp: ["grasp_obj", {rot : null, trans : null}]
     hover: ["target_obj", {rot : "xy", trans : null}]
     twist: [[[1, 60], [0, 60], [1, -60], [0, -60]], {rot : "z", trans : "xy"}]
-          # axis idx
+          # [axis idx, rotation degree]
   objects:
     base_height: 0.95
 

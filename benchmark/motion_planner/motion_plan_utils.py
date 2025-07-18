@@ -281,7 +281,7 @@ class PlanningContext(object):
             # ignore collision with in-hand object
             disabled_colliders += [link.prim_path for link in self.in_hand_obj.links.values()]
 
-            # ignore collision with griper and copy in-hand object
+            # ignore collision with gripper and copy in-hand object
             obj_meshes = [link.GetPrimPath().pathString for link in robot_meshes_copy['ee_link'].values()]
             robot_meshes = []
             for robot_link in robot_meshes_copy.keys():
@@ -409,11 +409,10 @@ class ArmPlanner():
         self.si_ = ob.SpaceInformation(self.space_)
 
 
-    def plan(self, goal_joints, context, planning_time=30.0):
-        start_conf = context.robot.get_joint_positions()[self.joint_control_idx]
+    def plan(self, start_joints, goal_joints, context, planning_time=60.0):
         start = ob.State(self.space_)
         for i in range(self.dim):
-            start[i] = float(start_conf[i])
+            start[i] = float(start_joints[i])
 
         goal = ob.State(self.space_)
         for i in range(self.dim):

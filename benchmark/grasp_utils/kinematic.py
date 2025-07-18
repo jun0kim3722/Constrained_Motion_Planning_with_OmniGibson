@@ -9,7 +9,6 @@ import json
 import omnigibson.lazy as lazy
 import omnigibson.utils.transform_utils as T
 
-
 class FKSolver:
     """
     Class for thinly wrapping Lula Forward Kinematics solver
@@ -294,7 +293,7 @@ class IKSolver:
             eef_pos = T.quat_apply(obj_loc[1], th.tensor(grasp["pos"])) + obj_tran
 
             grasp_quat = th.tensor(grasp['quat'])
-            eef_quat = T.quat_multiply(T.quat_multiply(grasp_quat, th.tensor([0.5, 0.5, 0.5, 0.5])), obj_rot)
+            eef_quat = T.quat_multiply(obj_rot, T.quat_multiply(grasp_quat, th.tensor([0.5, 0.5, 0.5, 0.5])))
 
             # calc offset location
             off_set_pos = th.tensor(grasp["pos"]) + T.quat_apply(grasp_quat, th.tensor([-offset, 0.0, 0.0]))

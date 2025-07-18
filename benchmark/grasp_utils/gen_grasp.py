@@ -316,4 +316,4 @@ if __name__ == "__main__":
             item_path = os.path.join(obj_dir, item) + "/usd"
             if os.path.isdir(item_path):
                 print("--------------OPENING: " + item_path +  "--------------")
-                get_grasp(item_path, viz=False)
+                get_grasp(item_path, viz=True)

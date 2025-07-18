@@ -220,15 +220,22 @@ class ArmCcontrainedPlanner():
 
             if not validityChecker.isValid(start, True):
                 print("Start")
+                breakpoint()
                 for _ in range(500):
                     ogb.sim.step()
 
             if not validityChecker.isValid(goal, True):
+                breakpoint()
                 print("Goal")
                 for _ in range(500):
                     ogb.sim.step()
 
             return None
+
+        breakpoint()
+        print("Goal")
+        for _ in range(500): ogb.sim.step()
+        breakpoint()
 
         self.cp_.setStartAndGoalStates(start, goal)
         self.cp_.setPlanner(planner_type, "ur5e")
