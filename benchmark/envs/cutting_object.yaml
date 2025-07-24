@@ -6,6 +6,7 @@ config:
   robots:
     - type: "UR5e"
       name: "UR5e"
+      grasping_mode: "assisted"
       obs_modalities: ["rgb", "depth"]
       position: [-3.1, -2, 0.8]
       action_normalize: False
@@ -25,7 +26,7 @@ task:
   actions:
     grasp: ["grasp_obj", {rot : null, trans : null}]
     hover: ["target_obj", {rot : null, trans : null}]
-    cut: ["target_obj", {rot : "xyz", trans : "xy"}, 90]
+    cut: ["target_obj", {rot : "xz", trans : "xy"}]
     # ["target_obj", constrain, cutting angle: +x_dir = 0 degree | +y_dir = 90]
     # knife x = right | y = up | blade = -y
 
@@ -35,7 +36,8 @@ task:
     to_add:
       grasp_obj: {carving_knife : ["zaihmr"]}
       # target_obj: ["cucumber", "apple", "buttermilk_pancake", "eggplant"]
-      target_obj: ["cucumber", "eggplant"]
+      target_obj: ["bagel", "baguette", "cucumber", "eggplant"]
+      # target_obj: ["bagel"]
     
     relation: on_top
     areas: ["countertop_tpuwys_4", "countertop_tpuwys_5"]

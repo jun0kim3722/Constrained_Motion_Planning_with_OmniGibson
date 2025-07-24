@@ -88,7 +88,7 @@ class ConstrainedProblem(object):
 # ********************************** constrained planner **********************************
 class ArmConstraint(ob.Constraint):
 
-    def __init__(self, context, trans_const, quat_const, trans_mask, rot_mask, num_const):
+    def __init__(self, context, trans_const, quat_const, trans_mask, rot_mask, num_const, custom_fn):
         super(ArmConstraint, self).__init__(6, num_const)
         self.num_const = num_const
 
@@ -99,21 +99,14 @@ class ArmConstraint(ob.Constraint):
         self.quat_const_ = quat_const
         self.trans_mask_ = trans_mask
         self.rot_mask_ = rot_mask
-
-
-        # if self.trans_const_ is not None:
-        #     self.trans_mask_ = th.isfinite(self.trans_const_)
-        # else:
-        #     self.trans_mask_ = th.full((3,), False)
-
-        # if self.quat_const_ is not None:
-        #     self.rot_mask_ = th.isfinite(self.quat_const_)
-        # else:
-        #     self.rot_mask_ = th.full((3,), False)
+        self.custom_fn = custom_fn
 
     def function(self, x, out):
-        trans, quat = self.fk_solver.get_link_poses_quat(x, [self.eef_name])[self.eef_name]
+        if self.custom_fn is not None:
+            out[0:self.num_const] = self.custom_fn(x)
+            return
 
+        trans, quat = self.fk_solver.get_link_poses_quat(x, [self.eef_name])[self.eef_name]
         if self.trans_const_ is not None:
             trans_diff = (self.trans_const_ - trans)[self.trans_mask_]
         else:
@@ -130,8 +123,11 @@ class ArmConstraint(ob.Constraint):
         out[0:self.num_const] = th.cat((trans_diff, rot_diff))
 
     def jacobian(self, x, out):
-        trans, quat = self.fk_solver.get_link_poses_quat(x, [self.eef_name])[self.eef_name]
+        if self.custom_fn is not None:
+            out[:, :] = th.autograd.functional.jacobian(self.custom_fn, th.tensor(x))
+            return
 
+        trans, quat = self.fk_solver.get_link_poses_quat(x, [self.eef_name])[self.eef_name]
         pos_mask = th.cat((self.trans_mask_, self.rot_mask_))
         for j in range(6):
             new_joints = x.copy()
@@ -140,7 +136,7 @@ class ArmConstraint(ob.Constraint):
             quat_diff = T.quat_distance(quat_p, quat)
             axis_diff = T.quat2axisangle(quat_diff)
             out[:, j] = (th.cat((tran_p - trans, axis_diff)) / 1e-6)[pos_mask]
-        
+
 class ArmProjection(ob.ProjectionEvaluator):
 
     def __init__(self, space, context, trans_const, rot_const):
@@ -178,7 +174,8 @@ class ArmValidAll(ob.StateValidityChecker):
         return not self.context.set_arm_and_detect_collision(joint_pos, debug)
 
 class ArmCcontrainedPlanner():
-    def __init__(self, context, trans_const, rot_const, trans_mask, rot_mask, num_const, tolerance,
+    def __init__(self, context, tolerance=0.1, custom_fn=None,
+                 trans_const=None, rot_const=None, trans_mask=None, rot_mask=None, num_const=None,
                  spaceType="PJ", tries=50, delta=0.05, lambda_=2.0, range_=0, exploration=0.75,
                  epsilon=0.05, rho=0.25, alpha=0.39, charts=200, bias=False, no_separate=False):
         
@@ -194,7 +191,7 @@ class ArmCcontrainedPlanner():
             self.space_.addDimension(lower_bound, upper_bound)
 
         # Create constraint
-        self.constraint = ArmConstraint(context, trans_const, rot_const, trans_mask, rot_mask, num_const)
+        self.constraint = ArmConstraint(context, trans_const, rot_const, trans_mask, rot_mask, num_const, custom_fn)
         self.cp_ = ConstrainedProblem(spaceType, self.space_, self.constraint, tolerance, tries, delta, lambda_, range_,
                                       exploration, epsilon, rho, alpha, charts, bias, no_separate)
         self.cp_.css.registerProjection("ur5e", ArmProjection(self.cp_.css, context, trans_const, rot_const))
@@ -218,24 +215,33 @@ class ArmCcontrainedPlanner():
         if not validityChecker.isValid(start, True) or not validityChecker.isValid(goal, True):
             ogb.log.warning("Invalid Start or Goal from ArmCcontrainedPlanner")
 
-            if not validityChecker.isValid(start, True):
-                print("Start")
-                breakpoint()
-                for _ in range(500):
-                    ogb.sim.step()
+            # if not validityChecker.isValid(start, True):
+            #     print("Start")
+            #     breakpoint()
+            #     for _ in range(500):
+            #         ogb.sim.step()
 
-            if not validityChecker.isValid(goal, True):
-                breakpoint()
-                print("Goal")
-                for _ in range(500):
-                    ogb.sim.step()
+            # if not validityChecker.isValid(goal, True):
+            #     breakpoint()
+            #     print("Goal")
+            #     for _ in range(500):
+            #         ogb.sim.step()
 
             return None
+        
+        # Check Start & Goal constraint
+        st_result = np.zeros(self.constraint.num_const)
+        self.constraint.function(start_conf, st_result)
+        if (st_result > 0.1).any():
+            print("Start does not meet constraint")
+            breakpoint()
 
-        breakpoint()
-        print("Goal")
-        for _ in range(500): ogb.sim.step()
-        breakpoint()
+        gl_result = np.zeros(self.constraint.num_const)
+        self.constraint.function(end_conf, gl_result)
+        if (gl_result > 0.1).any():
+            print("Goal does not meet constraint")
+            breakpoint()
+
 
         self.cp_.setStartAndGoalStates(start, goal)
         self.cp_.setPlanner(planner_type, "ur5e")

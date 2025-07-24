@@ -170,7 +170,8 @@ class PlanningContext(object):
                        self.robot.get_position_orientation()[1] - self.robot_copy.reset_pose['original'][1])
         
         self.robot_copy_type = robot_copy_type if robot_copy_type in robot_copy.prims.keys() else "original"
-        self.disabled_collision_pairs_dict = disabled_collision_pairs_dict
+        self.disabled_collision_pairs_dict = {}
+        self.disabled_collision_pairs_dict |= disabled_collision_pairs_dict
 
         self._assemble_robot_copy()
         self._construct_disabled_collision_pairs()

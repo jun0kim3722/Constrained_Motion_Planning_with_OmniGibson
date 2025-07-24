@@ -160,12 +160,13 @@ def get_pose_from_path(path_list, frame_rate=10):
 
 def constrained_planning(env, robot, start_joints, goal_joints, collision_joints=None, obj=None,
                          disabled_collision_pairs_dict={}, trans_const=None, rot_const=None,
-                         rot_mask=None, trans_mask=None, num_const=2,  **kwarg):
+                         rot_mask=None, trans_mask=None, num_const=0, custom_fn=None, **kwarg):
     path = None
     with PlanningContext(env, robot, collision_joints, obj, disabled_collision_pairs_dict) as context:
 
-        acp = ArmCcontrainedPlanner(context, trans_const=trans_const, rot_const=rot_const,
-                                    rot_mask=rot_mask, trans_mask=trans_mask, num_const=num_const, tolerance=np.deg2rad(30.0))
+        acp = ArmCcontrainedPlanner(context, tolerance=np.deg2rad(30.0), trans_const=trans_const, 
+                                    rot_const=rot_const, custom_fn=custom_fn, rot_mask=rot_mask, 
+                                    trans_mask=trans_mask, num_const=num_const)
         path = acp.plan(start_joints, goal_joints, context, planning_time=120.0)
 
         if path:
@@ -226,13 +227,15 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     # Reset environment and robot
     env.reset()
     robot.reset()
-    for _ in range(10):
+    for _ in range(100):
         og.sim.step()
 
 
     # grasp_obj = obj_dict['grasp_obj']
     # grasp_list = ik_solver.get_grasp(grasp_obj)
     # for offset_joints, grasp_joints in grasp_list:
+    #     path2cutend = constrained_planning(env, robot, robot.get_joint_positions()[:6], offset_joints, custom_fn=check_region, num_const=6)
+
     #     # for joints in joint_path:
     #     joints = robot.arm_joint_names[robot.default_arm]
     #     breakpoint()
@@ -245,6 +248,7 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     ap = ActionPlan(env, robot, ik_solver, fk_solver)
     find_grasp = False
     for name, action in action_cfg.items():
+        print("******* NAME: ", name)
         if action[1]['rot'] == None and action[1]['trans'] == None:
             planner = arm_planning
         else:
@@ -255,12 +259,12 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
             "target_obj" : obj_dict[action[0]],
             "target_rot" : action[0],
             "const_dict" : action[1],
-            "cutting_angle" : action[2] if len(action) == 3 else None,
         }
         
         if find_grasp:
             if ap.find_grasps(grasp_obj, name, kwargs):
                 og.log.info(f"-------------- Successfully generated {name} plan --------------")
+                find_grasp = False
             else:
                 raise Exception(f"{name} Planning Failed!!!!!!")
 
@@ -270,12 +274,12 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
             continue
             # ap.grasp(arm_planning, grasp_obj)
 
-        # action_fn = getattr(ap, name, Exception(f'Action does not exist. Check {yaml_file} file!!!!'))
-
-        # if action_fn(**kwargs):
-        #     og.log.info(f"-------------- Successfully generated {name} plan --------------")
-        # else:
-        #     raise Exception(f"{name} Planning Failed!!!!!!")
+        # Plan other actions
+        action_fn = getattr(ap, name, Exception(f'Action does not exist. Check {yaml_file} file!!!!'))
+        if action_fn(**kwargs):
+            og.log.info(f"-------------- Successfully generated {name} plan --------------")
+        else:
+            raise Exception(f"{name} Planning Failed!!!!!!")
 
         # if name == "hover":
         #     target_obj = obj_dict[action[0]]
