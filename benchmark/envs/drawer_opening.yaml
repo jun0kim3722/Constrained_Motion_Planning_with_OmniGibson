@@ -1,0 +1,42 @@
+config:
+  scene:
+    type: "InteractiveTraversableScene"
+    scene_model: "Pomaria_1_int"
+
+  robots:
+    - type: "UR5e"
+      name: "UR5e"
+      grasping_mode: "assisted"
+      obs_modalities: ["rgb", "depth"]
+      position: [-3.7, -1.8, 0.8]
+      action_normalize: False
+      controller_config:
+        arm_0:
+          name: JointController
+          use_delta_commands: False
+          command_input_limits: null
+
+        gripper_0:
+          name: MultiFingerGripperController
+          mode: binary
+
+task:
+  task_name: Drawer opening
+
+  actions:
+    grasp: ["bottom_cabinet_no_top_qohxjq_0", null]
+    open_or_close: ["bottom_cabinet_no_top_qohxjq_0", line]
+
+  objects:
+    base_height: 1.0
+
+    to_add: {}
+      # grasp_obj: {carving_knife : ["zaihmr"]}
+      # target_obj: ["bagel", "baguette", "cucumber", "eggplant"]
+    
+    relation: on_top
+    areas: ["countertop_tpuwys_4", "countertop_tpuwys_5"]
+
+cam_pos:
+  position: [-1.7100,  0.3259,  2.2458]
+  orientation: [0.2121, 0.4779, 0.7788, 0.3466]

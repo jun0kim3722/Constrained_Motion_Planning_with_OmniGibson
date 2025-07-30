@@ -10,6 +10,18 @@ import omnigibson as ogb
 import omnigibson.utils.transform_utils as T
 
 # ********************************** constrained problem def **********************************
+def getAtlasOptions():
+    print("Pulling AtlasOPtions")
+    return (
+        ob.ATLAS_STATE_SPACE_EPSILON,
+        ob.CONSTRAINED_STATE_SPACE_DELTA * ob.ATLAS_STATE_SPACE_RHO_MULTIPLIER,
+        ob.ATLAS_STATE_SPACE_EXPLORATION,
+        ob.ATLAS_STATE_SPACE_ALPHA,
+        ob.ATLAS_STATE_SPACE_MAX_CHARTS_PER_EXTENSION,
+        False,
+        True,
+    )
+
 class ConstrainedProblem(object):
 
     def __init__(self, spaceType, space, constraint, tolerance, tries, delta, lambda_, range_,
@@ -88,79 +100,36 @@ class ConstrainedProblem(object):
 # ********************************** constrained planner **********************************
 class ArmConstraint(ob.Constraint):
 
-    def __init__(self, context, trans_const, quat_const, trans_mask, rot_mask, num_const, custom_fn):
-        super(ArmConstraint, self).__init__(6, num_const)
+    def __init__(self, robot_dof, num_const, custom_fn):
+        super(ArmConstraint, self).__init__(robot_dof, num_const)
         self.num_const = num_const
-
-        self.fk_solver = context.fk_solver
-        self.eef_name = context.robot.eef_link_names[context.robot.default_arm]
-
-        self.trans_const_ = trans_const
-        self.quat_const_ = quat_const
-        self.trans_mask_ = trans_mask
-        self.rot_mask_ = rot_mask
-        self.custom_fn = custom_fn
+        self.constraint_fn = custom_fn
 
     def function(self, x, out):
-        if self.custom_fn is not None:
-            out[0:self.num_const] = self.custom_fn(x)
-            return
-
-        trans, quat = self.fk_solver.get_link_poses_quat(x, [self.eef_name])[self.eef_name]
-        if self.trans_const_ is not None:
-            trans_diff = (self.trans_const_ - trans)[self.trans_mask_]
-        else:
-            trans_diff = th.empty(0)
-        
-        if self.quat_const_ is not None:
-            quat_diff = T.quat_distance(self.quat_const_, quat)
-            axis_diff = T.quat2axisangle(quat_diff)
-            rot_diff = axis_diff[self.rot_mask_]
-
-        else:
-            rot_diff = th.empty(0)
-
-        out[0:self.num_const] = th.cat((trans_diff, rot_diff))
+        out[0:self.num_const] = self.constraint_fn(x)
 
     def jacobian(self, x, out):
-        if self.custom_fn is not None:
-            out[:, :] = th.autograd.functional.jacobian(self.custom_fn, th.tensor(x))
-            return
-
-        trans, quat = self.fk_solver.get_link_poses_quat(x, [self.eef_name])[self.eef_name]
-        pos_mask = th.cat((self.trans_mask_, self.rot_mask_))
-        for j in range(6):
-            new_joints = x.copy()
-            new_joints[j] += 1e-6
-            tran_p, quat_p = self.fk_solver.get_link_poses_quat(new_joints, [self.eef_name])[self.eef_name]
-            quat_diff = T.quat_distance(quat_p, quat)
-            axis_diff = T.quat2axisangle(quat_diff)
-            out[:, j] = (th.cat((tran_p - trans, axis_diff)) / 1e-6)[pos_mask]
+        n = x.shape[0]
+        for i in range(n):
+            dx = np.zeros_like(x)
+            dx[i] = 1e-6
+            out[:, i] = ((self.constraint_fn(x + dx) - self.constraint_fn(x - dx)) / (2 * 1e-6)).detach().numpy()
 
 class ArmProjection(ob.ProjectionEvaluator):
 
-    def __init__(self, space, context, trans_const, rot_const):
+    def __init__(self, space, context):
         super(ArmProjection, self).__init__(space)
         self.space_ = space
         self.fk_solver = context.fk_solver
         self.eef_name = context.robot.eef_link_names[context.robot.default_arm]
-        # self.trans_const_ = trans_const
-        # self.rot_const_ = rot_const
-
-        # if self.trans_const_ is not None:
-        #     self.pos_mask = th.isfinite(self.trans_const_)
-
-        # if self.rot_const_ is not None:
-        #     self.rot_mask = th.isfinite(self.rot_const_)
 
     def getDimension(self):
-        return 6
+        return 3
 
     def project(self, state, projection):
         trans, rot = self.fk_solver.get_link_poses_axisangle([state[0], state[1], state[2], state[3], state[4], state[5]], [self.eef_name])[self.eef_name]
-
         projection[0:3] = trans
-        projection[3:6] = rot
+        # projection[3:6] = rot
 
 class ArmValidAll(ob.StateValidityChecker):
     def __init__(self, si, context):
@@ -174,8 +143,7 @@ class ArmValidAll(ob.StateValidityChecker):
         return not self.context.set_arm_and_detect_collision(joint_pos, debug)
 
 class ArmCcontrainedPlanner():
-    def __init__(self, context, tolerance=0.1, custom_fn=None,
-                 trans_const=None, rot_const=None, trans_mask=None, rot_mask=None, num_const=None,
+    def __init__(self, context, tolerance=0.1, custom_fn=None, num_const=None,
                  spaceType="PJ", tries=50, delta=0.05, lambda_=2.0, range_=0, exploration=0.75,
                  epsilon=0.05, rho=0.25, alpha=0.39, charts=200, bias=False, no_separate=False):
         
@@ -187,14 +155,25 @@ class ArmCcontrainedPlanner():
         
         self.space_ = ob.RealVectorStateSpace(0)
         for lower_bound, upper_bound in joint_limits:
-            print(lower_bound, upper_bound)
             self.space_.addDimension(lower_bound, upper_bound)
+        
+        if spaceType=="AT":
+            (
+                epsilon,
+                rho,
+                exploration,
+                alpha,
+                charts,
+                bias,
+                no_separate,
+            ) = getAtlasOptions()
 
         # Create constraint
-        self.constraint = ArmConstraint(context, trans_const, rot_const, trans_mask, rot_mask, num_const, custom_fn)
+        self.constraint = ArmConstraint(self.dim, num_const, custom_fn)
         self.cp_ = ConstrainedProblem(spaceType, self.space_, self.constraint, tolerance, tries, delta, lambda_, range_,
                                       exploration, epsilon, rho, alpha, charts, bias, no_separate)
-        self.cp_.css.registerProjection("ur5e", ArmProjection(self.cp_.css, context, trans_const, rot_const))
+        if spaceType=="PJ":
+            self.cp_.css.registerProjection("ur5e", ArmProjection(self.cp_.css, context))
 
     def plan(self, start_conf, end_conf, context, planner_type="KPIECE1", planning_time=30.0):
         start = ob.State(self.cp_.css)
@@ -212,8 +191,11 @@ class ArmCcontrainedPlanner():
 
         # check start and goal state
         # assert validityChecker.isValid(start) and validityChecker.isValid(goal), "Invalid Start or Goal"
-        if not validityChecker.isValid(start, True) or not validityChecker.isValid(goal, True):
-            ogb.log.warning("Invalid Start or Goal from ArmCcontrainedPlanner")
+        if not validityChecker.isValid(start, True):
+            ogb.log.warning("Invalid Start from ArmCcontrainedPlanner")
+        
+        if not validityChecker.isValid(goal, True):
+            ogb.log.warning("Invalid Goal from ArmCcontrainedPlanner")
 
             # if not validityChecker.isValid(start, True):
             #     print("Start")
@@ -241,7 +223,6 @@ class ArmCcontrainedPlanner():
         if (gl_result > 0.1).any():
             print("Goal does not meet constraint")
             breakpoint()
-
 
         self.cp_.setStartAndGoalStates(start, goal)
         self.cp_.setPlanner(planner_type, "ur5e")

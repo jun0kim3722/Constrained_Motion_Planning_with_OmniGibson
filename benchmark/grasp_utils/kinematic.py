@@ -300,13 +300,14 @@ class IKSolver:
             eef_offset_pos = T.quat_apply(obj_loc[1], off_set_pos) + obj_tran
 
             # solve IK
-            target_pose_homo = T.pose2mat([eef_pos, eef_quat])
-            joint_pos = self.solve(target_pose_homo = target_pose_homo)
-
             offset_pose_homo = T.pose2mat([eef_offset_pos, eef_quat])
             joint_offset_pos = self.solve(target_pose_homo = offset_pose_homo)
+            if joint_offset_pos is not None: continue
 
-            if joint_pos is not None and joint_offset_pos is not None:
+            target_pose_homo = T.pose2mat([eef_pos, eef_quat])
+            joint_pos = self.solve(target_pose_homo = target_pose_homo, initial_joint_pos=joint_offset_pos)
+
+            if joint_pos is not None:
                 grasp_list.append([joint_offset_pos, joint_pos])
         
         if not grasp_list:

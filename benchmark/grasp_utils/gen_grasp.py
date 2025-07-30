@@ -311,7 +311,7 @@ if __name__ == "__main__":
         obj_dir = base_dir + obj_name
 
         for item in os.listdir(obj_dir):
-            # if item != "alekva":
+            # if item != "ghhbgo":
             #     continue
             item_path = os.path.join(obj_dir, item) + "/usd"
             if os.path.isdir(item_path):

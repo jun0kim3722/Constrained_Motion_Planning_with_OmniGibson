@@ -21,6 +21,8 @@ from omnigibson.utils.asset_utils import (
     get_all_object_category_models
 )
 
+from omnigibson.utils.grasping_planning_utils import get_grasp_position_for_open, grasp_position_for_open_on_prismatic_joint
+
 from scipy.spatial.transform import Rotation as R
 from tasks.actions import ActionPlan
 
@@ -38,7 +40,7 @@ def read_yaml(file_name):
     # define task
     task_cfg = benchmark_cfg["task"]
     task_name = task_cfg["task_name"]
-    og.log.info(f"************ Starting {task_name} ************")
+    print(f"************ Starting {task_name} ************")
 
     return cfg, task_cfg["objects"], task_cfg["actions"], [benchmark_cfg["cam_pos"]["position"], benchmark_cfg["cam_pos"]["orientation"]]
 
@@ -66,6 +68,7 @@ def setup_objects(env, obj_cfg):
 
         obj = og.objects.DatasetObject(name=category, category=category, model=model, position=[0,0,0])
         env.scene.add_object(obj)
+        obj.sleep()
         obj_pos = check_region(env, obj, obj_cfg, height, obj_locs)
 
         obj_locs.append(obj_pos)
@@ -73,14 +76,17 @@ def setup_objects(env, obj_cfg):
 
         for _ in range(10):
             og.sim.step()
-        
-    # check_region(env, obj, obj_cfg, height)
+    
     for _, obj in obj_dict.items():
         z = np.random.uniform(-np.pi, np.pi)
         obj.set_position_orientation(orientation=T.euler2quat(th.tensor([0,0,z])))
-        # obj.set_position_orientation(orientation=[0,0,0,1])
         for _ in range(20):
+            obj.keep_still()
             og.sim.step()
+        
+        obj.wake()
+
+        # for _ in range(20): og.sim.step()
 
     return obj_dict
 
@@ -111,9 +117,9 @@ def check_region(env, obj, obj_cfg, height, obj_locs):
                 
         if is_collision: continue
 
-        obj.set_position_orientation(position=obj_pos, orientation=[0,0,0,1])
-
-        for _ in range(10):
+        # z = np.random.uniform(-np.pi, np.pi)
+        obj.set_position_orientation(position=obj_pos, orientation=T.euler2quat(th.tensor([0,0,1])))
+        for _ in range(20):
             og.sim.step()
 
         # check sampled region relation
@@ -158,15 +164,12 @@ def get_pose_from_path(path_list, frame_rate=10):
     
     return pos_list
 
-def constrained_planning(env, robot, start_joints, goal_joints, collision_joints=None, obj=None,
-                         disabled_collision_pairs_dict={}, trans_const=None, rot_const=None,
-                         rot_mask=None, trans_mask=None, num_const=0, custom_fn=None, **kwarg):
+def constrained_planning(env, robot, start_joints, goal_joints, num_const=0, custom_fn=None,
+                         collision_joints=None, obj=None, disabled_collision_pairs_dict={}, **kwarg):
     path = None
     with PlanningContext(env, robot, collision_joints, obj, disabled_collision_pairs_dict) as context:
 
-        acp = ArmCcontrainedPlanner(context, tolerance=np.deg2rad(30.0), trans_const=trans_const, 
-                                    rot_const=rot_const, custom_fn=custom_fn, rot_mask=rot_mask, 
-                                    trans_mask=trans_mask, num_const=num_const)
+        acp = ArmCcontrainedPlanner(context, tolerance=0.1, custom_fn=custom_fn, num_const=num_const)
         path = acp.plan(start_joints, goal_joints, context, planning_time=120.0)
 
         if path:
@@ -195,7 +198,8 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     """
 
     # Create the environment
-    yaml_file = "envs/cutting_object.yaml"
+    # yaml_file = "envs/object_cutting.yaml"
+    yaml_file = "envs/drawer_opening.yaml"
     cfg, obj_cfg, action_cfg, cam_pos = read_yaml(yaml_file)
     env = og.Environment(configs=cfg)
     robot = env.robots[0]
@@ -231,6 +235,12 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
         og.sim.step()
 
 
+
+
+    while True:
+        og.sim.step()
+
+
     # grasp_obj = obj_dict['grasp_obj']
     # grasp_list = ik_solver.get_grasp(grasp_obj)
     # for offset_joints, grasp_joints in grasp_list:
@@ -241,43 +251,95 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     #     breakpoint()
 
             # robot.set_joint_positions(joints, offset_joints)
-    #     for _ in range(1000):
-    #         execute_controller(env, grasp_joints, True)
+        # for _ in range(1000):
+    # for _ in range(300): og.sim.step()
+    
+    # drawer = env.scene.objects[18]
+    # (
+    #     relevant_joint,
+    #     offset_grasp_pos,
+    #     grasp_pos,
+    #     goal_pos,
+    #     _,
+    #     required_pos_change,
+    # ) = get_grasp_position_for_open(robot, drawer, True, relevant_joint=drawer._joints['j_link_2'], offset=0.145)
+    # joints = ik_solver.solve_newcoord(*offset_grasp_pos)
+    # breakpoint()
+    # joints = ik_solver.solve_newcoord(*grasp_pos)
+    # robot.apply_action(th.cat((joints, th.full((1,),-1))))
+    # for _ in range(200): og.sim.step()
+    # relation = og.object_states.open_state.Open
 
     # plan task
     ap = ActionPlan(env, robot, ik_solver, fk_solver)
     find_grasp = False
     for name, action in action_cfg.items():
         print("******* NAME: ", name)
-        if action[1]['rot'] == None and action[1]['trans'] == None:
+        if action[1] is None:
             planner = arm_planning
         else:
             planner = constrained_planning
 
+        if not obj_dict: 
+            # find name in object list
+            obj_list = [obj for obj in env.scene.objects if action[0] in obj.name]
+            
+            min_dist = 5
+            target_obj = None
+            for obj in obj_list:
+                obj_loc = obj.get_position_orientation()
+                dist = np.linalg.norm(obj_loc[0][:2] - robot_loc[0][:2])
+
+                if dist < min_dist:
+                    min_dist = dist
+                    target_obj = obj
+            
+            if target_obj is None:
+                raise Exception(f"Can't find {action[0]}!!!!!!")
+                
+        else:
+            target_obj = obj_dict[action[0]]
+
         kwargs = {
             "planner" : planner,
-            "target_obj" : obj_dict[action[0]],
+            "target_obj" : target_obj,
             "target_rot" : action[0],
             "const_dict" : action[1],
         }
         
         if find_grasp:
             if ap.find_grasps(grasp_obj, name, kwargs):
-                og.log.info(f"-------------- Successfully generated {name} plan --------------")
+                print(f"-------------- Successfully generated {name} plan --------------")
                 find_grasp = False
+                continue
             else:
                 raise Exception(f"{name} Planning Failed!!!!!!")
 
         if name == "grasp":
             find_grasp = True
-            grasp_obj = obj_dict['grasp_obj']
+
+            if not obj_dict: 
+                # find name in object list
+                obj_list = [obj for obj in env.scene.objects if action[0] in obj.name]
+                
+                min_dist = 5
+                grasp_obj = None
+                for obj in obj_list:
+                    obj_loc = obj.get_position_orientation()
+                    dist = np.linalg.norm(obj_loc[0][:2] - robot_loc[0][:2])
+
+                    if dist < min_dist:
+                        min_dist = dist
+                        grasp_obj = obj
+            else:
+                grasp_obj = obj_dict[action[0]]
+
             continue
-            # ap.grasp(arm_planning, grasp_obj)
 
         # Plan other actions
         action_fn = getattr(ap, name, Exception(f'Action does not exist. Check {yaml_file} file!!!!'))
         if action_fn(**kwargs):
-            og.log.info(f"-------------- Successfully generated {name} plan --------------")
+            print(f"-------------- Successfully generated {name} plan --------------")
         else:
             raise Exception(f"{name} Planning Failed!!!!!!")
 
@@ -301,12 +363,22 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     print("********** plan grasp ***********")
     ap.add_grasp(arm_planning)
     
+    # with PlanningContext(env, robot) as context:
+    #     for path, is_gripper_open in ap.motion_plan:
+    #         for joints in path:
+    #             context.set_arm_and_detect_collision(path[-21], True)
+    #             for _ in range(100): og.sim.step()
+    #             breakpoint()
+                
+
     breakpoint()
     ap.execute_actions()
 
     # check if task is completed
     breakpoint()
-
+    joints = ap.motion_plan[0][0][10]
+    robot.apply_action(th.cat((th.tensor(joints), th.full((1,),1))))
+    for _ in range(100): og.sim.step()
 
 if __name__ == "__main__":
     import argparse

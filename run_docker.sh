@@ -75,6 +75,7 @@ docker run \
     -v $DATA_PATH/robot_config/entity_prim.py:/omnigibson-src/omnigibson/prims/entity_prim.py:rw \
     -v $DATA_PATH/robot_config/__init__.py:/omnigibson-src/omnigibson/robots/__init__.py:rw \
     -v $DATA_PATH/utils/transform_utils.py:/omnigibson-src/omnigibson/utils/transform_utils.py:rw \
+    -v $DATA_PATH/utils/grasping_planning_utils.py:/omnigibson-src/omnigibson/utils/grasping_planning_utils.py:rw \
     -v $DATA_PATH/obj_list.txt:/data/og_dataset/objects/obj_list.txt:rw \
     -v $DATA_PATH/datasets:/data:rw \
     -v $DATA_PATH/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit:rw \

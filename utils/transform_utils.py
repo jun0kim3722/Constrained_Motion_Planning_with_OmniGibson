@@ -272,7 +272,7 @@ def quat_slerp(quat0, quat1, frac, shortestpath=True, eps=1.0e-15):
     """
     # type: (Tensor, Tensor, Tensor, bool, float) -> Tensor
     # reshape quaternion
-    quat_shape = quat0.shape
+    quat_shape = [frac.shape[0], quat0.shape[1]]
     quat0 = unit_vector(quat0.reshape(-1, 4), dim=-1)
     quat1 = unit_vector(quat1.reshape(-1, 4), dim=-1)
 

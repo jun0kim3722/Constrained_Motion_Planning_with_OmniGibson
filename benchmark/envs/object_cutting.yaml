@@ -21,23 +21,19 @@ config:
           mode: binary
 
 task:
-  task_name: Cutting object
+  task_name: Object cutting
 
   actions:
-    grasp: ["grasp_obj", {rot : null, trans : null}]
-    hover: ["target_obj", {rot : null, trans : null}]
+    grasp: ["grasp_obj", null]
+    hover: ["target_obj", null]
     cut: ["target_obj", {rot : "xz", trans : "xy"}]
-    # ["target_obj", constrain, cutting angle: +x_dir = 0 degree | +y_dir = 90]
-    # knife x = right | y = up | blade = -y
 
   objects:
     base_height: 1.0
 
     to_add:
       grasp_obj: {carving_knife : ["zaihmr"]}
-      # target_obj: ["cucumber", "apple", "buttermilk_pancake", "eggplant"]
-      target_obj: ["bagel", "baguette", "cucumber", "eggplant"]
-      # target_obj: ["bagel"]
+      target_obj: ["bagel", "baguette", "cucumber", "eggplant", "apple"]
     
     relation: on_top
     areas: ["countertop_tpuwys_4", "countertop_tpuwys_5"]

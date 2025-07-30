@@ -424,8 +424,12 @@ class ArmPlanner():
         self.si_.setStateValidityCheckingResolution(0.0005)
         self.si_.setup()
 
-        if not validityChecker.isValid(start, True) or not validityChecker.isValid(goal, True):
-            og.log.warning("Invalid Start or Goal from ArmPlanner")
+        if not validityChecker.isValid(start, True):
+            og.log.warning("Invalid Start from ArmPlanner")
+            return None
+        
+        if not validityChecker.isValid(goal, True):
+            og.log.warning("Invalid Goal from ArmPlanner")
             return None
 
         pdef = ob.ProblemDefinition(self.si_)
