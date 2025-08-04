@@ -25,7 +25,7 @@ task:
 
   actions:
     grasp: ["bottom_cabinet_no_top_qohxjq_0", null]
-    open_or_close: ["bottom_cabinet_no_top_qohxjq_0", line]
+    open_or_close: ["bottom_cabinet_no_top_qohxjq_0", open]
 
   objects:
     base_height: 1.0

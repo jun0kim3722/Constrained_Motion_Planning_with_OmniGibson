@@ -158,7 +158,7 @@ class ActionPlan():
 
         return {"custom_fn" : const_fn, "num_const" : num_const}
     
-    def get_line_constraint(self, start_trans, goal_trans, rot_const, rot_mask=th.full((3,), True)):
+    def get_linear_constraint(self, start_trans, goal_trans, rot_const, rot_mask=th.full((3,), True)):
         line = start_trans - goal_trans
         line_dot = th.dot(line, line)
 
@@ -166,21 +166,61 @@ class ActionPlan():
             if type(joints) == th.Tensor:
                 joints = joints.detach().cpu().numpy()
 
-            trans, quat = self.fk_solver.get_link_poses_quat(
+            eef_trans, eef_quat = self.fk_solver.get_link_poses_quat(
                     (joints), [self.robot._eef_link_names]
                 )[self.robot._eef_link_names]
 
-            vec = trans - start_trans
+            vec = eef_trans - start_trans
             t = th.dot(vec, line) / line_dot
             Q = start_trans + t * line
 
-            quat_diff = T.quat_distance(rot_const, quat)
+            quat_diff = T.quat_distance(rot_const, eef_quat)
             axis_diff = T.quat2axisangle(quat_diff)
             rot_diff = axis_diff[rot_mask]
 
-            return th.cat((th.norm(trans - Q).unsqueeze(0), rot_diff))
+            return th.cat((th.norm(eef_trans - Q).unsqueeze(0), rot_diff))
 
         return {"custom_fn" : const_fn, "num_const" : int(1 + sum(rot_mask))}
+
+    def get_revolute_constraint(self, joint_loc_world_frame, joint_axis_world_frame, 
+                                eef_start_pos, total_yaw_change):
+
+        joint_loc_robot_frame = T.relative_pose_transform(*joint_loc_world_frame, *self.robot.get_position_orientation())
+        joint_loc_robot_frame[0][2] = eef_start_pos[0][2]
+        joint_dist = th.norm(eef_start_pos[0][:2] - joint_loc_robot_frame[0][:2])
+        
+        robot_trans = self.robot.get_position_orientation()[0]
+        eef_start_trans_origin = eef_start_pos[0] - joint_loc_robot_frame[0]
+
+        joint_axis_world_frame = T.euler2quat(joint_axis_world_frame)
+        joint_axis_robot_frame = T.quat_multiply(self.robot.get_position_orientation()[1], joint_axis_world_frame)
+        joint_axis_robot_frame = joint_axis_robot_frame / th.norm(joint_axis_robot_frame)
+
+        def const_fn(joints):
+            if type(joints) == th.Tensor:
+                joints = joints.detach().cpu().numpy()
+
+            eef_trans, eef_quat = self.fk_solver.get_link_poses_quat(
+                    (joints), [self.robot._eef_link_names]
+                )[self.robot._eef_link_names]
+
+            trans_diff = eef_trans - joint_loc_robot_frame[0]
+            current_distance = th.norm(trans_diff)
+            linear_distance_error = current_distance - joint_dist
+
+            eef_trans_origin = eef_trans + robot_trans - joint_loc_world_frame[0]
+            yaw_diff = th.atan2(eef_trans_origin[1], eef_trans_origin[0]) \
+                        - th.atan2(eef_start_trans_origin[1], eef_start_trans_origin[0])
+            yaw2quat = T.euler2quat(th.tensor([0, 0, yaw_diff]))
+            target_quat = T.quat_multiply(yaw2quat, eef_start_pos[1])
+
+            quat_diff = T.quat_distance(eef_quat, target_quat)
+            ang_residual = T.quat2axisangle(quat_diff)
+
+            return th.cat((linear_distance_error.unsqueeze(0), trans_diff[2].unsqueeze(0), ang_residual))
+
+        return {"custom_fn": const_fn, "num_const": 5}
+
     
     def constrained_planning(self, env, robot, start_joints, goal_joints, collision_joints=None, obj=None,
                          disabled_collision_pairs_dict={}, trans_const=None, rot_const=None,
@@ -425,7 +465,7 @@ class ActionPlan():
             
             cut_gripper_trans, cut_gripper_quat = self.fk_solver.get_link_poses_quat(cut_joints, [self.robot._eef_link_names])[self.robot._eef_link_names]
             gl_trans = cut_end_pos[0] - robot_trans
-            cut_end_arg = self.get_line_constraint(cut_gripper_trans, gl_trans, cut_gripper_quat)
+            cut_end_arg = self.get_linear_constraint(cut_gripper_trans, gl_trans, cut_gripper_quat)
 
             print("Planning Cut End")
             path2cutend = planner(self.env, self.robot, cut_joints, cut_end_joints, collision_joints=self.collision_joints,
@@ -451,7 +491,7 @@ class ActionPlan():
         og.log.info("Cut plan generated!!")
         return True
     
-    def open_or_close(self, planner, target_obj, const_dict, offset_joints=None, **kwargs):
+    def open_or_close(self, planner, target_obj, offset_joints=None, **kwargs):
         if offset_joints is None:
             start_joints = self.last_joint
         else:
@@ -461,12 +501,12 @@ class ActionPlan():
             # find start goal joints
             joint_name = 'j_link_' + str(i)
             (
-                relevant_joint,
+                joint,
                 offset_grasp_pos,
                 grasp_pos,
                 goal_pos,
-                _,
-                required_pos_change,
+                joint_type,
+                const_arg,
             ) = get_grasp_position_for_open(self.robot, target_obj, True, relevant_joint=target_obj._joints[joint_name], offset=0.155)
 
             offset_joints = self.ik_solver.solve_newcoord(*offset_grasp_pos)
@@ -476,12 +516,18 @@ class ActionPlan():
             goal_joints = self.ik_solver.solve_newcoord(*goal_pos, initial_joint_pos=grasp_joints)
             if goal_joints is None: continue
 
-            grasp_trans, grasp_quat = self.fk_solver.get_link_poses_quat((grasp_joints), [self.robot._eef_link_names])[self.robot._eef_link_names]
-            goal_trans, goal_quat = self.fk_solver.get_link_poses_quat((goal_joints), [self.robot._eef_link_names])[self.robot._eef_link_names]
-            line_const = self.get_line_constraint(grasp_trans, goal_trans, grasp_quat)
+            grasp_robot_frame = self.fk_solver.get_link_poses_quat((grasp_joints), [self.robot._eef_link_names])[self.robot._eef_link_names]
+            goal_robot_frame = self.fk_solver.get_link_poses_quat((goal_joints), [self.robot._eef_link_names])[self.robot._eef_link_names]
 
-            path = planner(self.env, self.robot, offset_joints, goal_joints, collision_joints=self.collision_joints,
-                        obj=None, **line_const)
+            if joint_type == "linear":
+                constraints = self.get_linear_constraint(grasp_robot_frame[0], goal_robot_frame[0], grasp_robot_frame[1])
+            else:
+                constraints = self.get_revolute_constraint(**const_arg, eef_start_pos=grasp_robot_frame)
+
+            name_idx = joint_name.find("link")
+            link_name = joint_name[name_idx:]
+            path = planner(self.env, self.robot, grasp_joints, goal_joints, collision_joints=self.collision_joints,
+                        obj=target_obj, link_name=link_name, **constraints)
 
             if path is not None:
                 self.motion_plan.append([path, False])

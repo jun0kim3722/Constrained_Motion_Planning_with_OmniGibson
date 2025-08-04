@@ -34,7 +34,7 @@ class RobotCopy:
             "simplified": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
         }
     
-    def __init__(self, og_robot, robot_joints=None, obj=None):
+    def __init__(self, og_robot, robot_joints=None, obj=None, link_name=None):
         self.fk_solver = FKSolver(
             robot_description_path=og_robot.robot_arm_descriptor_yamls[og_robot.default_arm],
             robot_urdf_path=og_robot.urdf_path,
@@ -106,7 +106,10 @@ class RobotCopy:
                     copy_robot_meshes_relative_poses[ee_link_name] = {}
 
                 obj_idx = 0
-                for link in obj.links.values():
+                for name, link in obj.links.items():
+                    if link_name is not None and name != link_name:
+                        continue
+
                     for mesh_name, mesh in link.collision_meshes.items():
                         if not UsdPhysics.CollisionAPI(mesh.prim).GetCollisionEnabledAttr().Get():
                             continue  # Skip non-collision shapes
@@ -156,14 +159,14 @@ class PlanningContext(object):
     A context manager that sets up a robot copy for collision checking in planning.
     """
 
-    def __init__(self, env, robot, robot_joints=None, in_hand_obj=None,
+    def __init__(self, env, robot, robot_joints=None, in_hand_obj=None, link_name=None,
                  disabled_collision_pairs_dict={}, robot_copy_type="original"):
         self.env = env
         self.robot = robot
 
         self.in_hand_obj = in_hand_obj
         self.robot_joints = robot_joints
-        robot_copy = RobotCopy(robot, robot_joints, in_hand_obj)
+        robot_copy = RobotCopy(robot, robot_joints, in_hand_obj, link_name)
         self.robot_copy = robot_copy
 
         self.offset = (self.robot.get_position_orientation()[0] - self.robot_copy.reset_pose['original'][0],

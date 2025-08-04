@@ -8,7 +8,9 @@ config:
       name: "UR5e"
       grasping_mode: "assisted"
       obs_modalities: ["rgb", "depth"]
-      position: [-3.7, -1.8, 0.8]
+      # position: [-3.86, -1.9, 1.4]
+      # position: [-3.6, -0.26, 1.5]
+      position: [-0.22, -0.26, 0.33]
       action_normalize: False
       controller_config:
         arm_0:
@@ -24,8 +26,9 @@ task:
   task_name: Cabinet opening
 
   actions:
-    grasp: ["top_cabinet_dmwxyl_1", null]
-    open_or_close: ["top_cabinet_dmwxyl_1", revolute]
+    # grasp: ["top_cabinet_dmwxyl_1", null]
+    grasp: ["bottom_cabinet_no_top_spojpj_0", null]
+    open_or_close: ["bottom_cabinet_no_top_spojpj_0", revolute]
 
   objects:
     base_height: 1.0
@@ -38,5 +41,7 @@ task:
     areas: ["countertop_tpuwys_4", "countertop_tpuwys_5"]
 
 cam_pos:
-  position: [-1.7100,  0.3259,  2.2458]
-  orientation: [0.2121, 0.4779, 0.7788, 0.3466]
+  # position: [-2.11,  -0.67,  2.20]
+  # orientation: [0.557, 0.367, 0.409, 0.623]
+  position: [0.65,  -1.33,  1.63]
+  orientation: [0.469, 0.113, 0.204, 0.852]

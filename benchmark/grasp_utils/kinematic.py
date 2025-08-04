@@ -231,22 +231,6 @@ class IKSolver:
         max_iterations=150,
         initial_joint_pos=None,
     ):
-        """
-        Backs out joint positions to achieve desired @target_pos and @target_quat
-
-        Args:
-            target_pose_homo (np.ndarray): [4, 4] homogeneous transformation matrix of the target pose in world frame
-            position_tolerance (float): Maximum position error (L2-norm) for a successful IK solution
-            orientation_tolerance (float): Maximum orientation error (per-axis L2-norm) for a successful IK solution
-            position_weight (float): Weight for the relative importance of position error during CCD
-            orientation_weight (float): Weight for the relative importance of position error during CCD
-            max_iterations (int): Number of iterations used for each cyclic coordinate descent.
-            initial_joint_pos (None or n-array): If specified, will set the initial cspace seed when solving for joint
-                positions. Otherwise, will use self.reset_joint_pos
-
-        Returns:
-            ik_results (lazy.lula.CyclicCoordDescentIkResult): IK result object containing the joint positions and other information.
-        """
         # convert target pose to robot base frame
         if len(rot) == 3:
             rot = T.euler2quat(rot)

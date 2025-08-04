@@ -211,6 +211,12 @@ class ArmCcontrainedPlanner():
 
             return None
         
+        if not validityChecker.isValid(goal, True):
+            breakpoint()
+            print("Goal")
+            for _ in range(500):
+                ogb.sim.step()
+        
         # Check Start & Goal constraint
         st_result = np.zeros(self.constraint.num_const)
         self.constraint.function(start_conf, st_result)
