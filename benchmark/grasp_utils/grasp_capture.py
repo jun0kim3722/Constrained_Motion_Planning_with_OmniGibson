@@ -119,8 +119,9 @@ def scene_for_grasp_gen(env, cam, obj_dir):
     center_offset = obj.get_position_orientation()[0] - obj.aabb_center + th.tensor([0, 0, obj.aabb_extent[2] / 2.0])
     obj.set_position_orientation(position=center_offset)
     
-    for _ in range(100):
-        env.step(th.empty(0))
+    for _ in range(300): env.step(th.empty(0))
+
+    # breakpoint()
 
     for modality in ["rgb", "depth", 'depth_linear', "seg_semantic", "seg_instance"]:
         cam.add_modality(modality)
@@ -135,7 +136,7 @@ def scene_for_grasp_gen(env, cam, obj_dir):
         print(img_idx, obj.get_position_orientation())
 
         # wait for obj to sattle
-        for _ in range(100):
+        for _ in range(300):
             env.step(th.empty(0))
 
         save_scene_imgs(cam, center_offset, obj_dir, img_idx, viz=False)

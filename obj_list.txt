@@ -1,3 +1,5 @@
+wooden_spoon
+spatula
 carving_knife
 soda_cup
 teacup

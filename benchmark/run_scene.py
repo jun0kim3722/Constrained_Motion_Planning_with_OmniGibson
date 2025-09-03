@@ -68,7 +68,6 @@ def setup_objects(env, obj_cfg):
 
         obj = og.objects.DatasetObject(name=category, category=category, model=model, position=[0,0,0])
         env.scene.add_object(obj)
-        obj.sleep()
         obj_pos = check_region(env, obj, obj_cfg, height, obj_locs)
 
         obj_locs.append(obj_pos)
@@ -84,10 +83,6 @@ def setup_objects(env, obj_cfg):
             obj.keep_still()
             og.sim.step()
         
-        obj.wake()
-
-        # for _ in range(20): og.sim.step()
-
     return obj_dict
 
 def check_region(env, obj, obj_cfg, height, obj_locs):
@@ -164,12 +159,12 @@ def get_pose_from_path(path_list, frame_rate=10):
     
     return pos_list
 
-def constrained_planning(env, robot, start_joints, goal_joints, num_const=0, custom_fn=None,
-                         collision_joints=None, obj=None, link_name=None, disabled_collision_pairs_dict={}, **kwarg):
+def constrained_planning(env, robot, start_joints, goal_joints, num_const=0, custom_fn=None, collision_joints=None,
+                         obj=None, link_name=None, disabled_collision_pairs_dict={}, tolerance=0.1, **kwarg):
     path = None
     with PlanningContext(env, robot, collision_joints, obj, link_name, disabled_collision_pairs_dict) as context:
 
-        acp = ArmCcontrainedPlanner(context, tolerance=0.1, custom_fn=custom_fn, num_const=num_const)
+        acp = ArmCcontrainedPlanner(context, tolerance=tolerance, custom_fn=custom_fn, num_const=num_const)
         path = acp.plan(start_joints, goal_joints, context, planning_time=120.0)
 
         if path:
@@ -179,9 +174,9 @@ def constrained_planning(env, robot, start_joints, goal_joints, num_const=0, cus
     return path
 
 def arm_planning(env, robot, start_joints, goal_joints, collision_joints=None, obj=None,
-                    disabled_collision_pairs_dict={}, **kwarg):
+                    link_name=None, disabled_collision_pairs_dict={}, **kwarg):
     path = None
-    with PlanningContext(env, robot, collision_joints, obj, disabled_collision_pairs_dict) as context:
+    with PlanningContext(env, robot, collision_joints, obj, link_name, disabled_collision_pairs_dict) as context:
         ap = ArmPlanner(context)
         path = ap.plan(start_joints, goal_joints, context)
 
@@ -198,9 +193,11 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     """
 
     # Create the environment
+    # yaml_file = "envs/liqiuid_pouring.yaml"
     # yaml_file = "envs/object_cutting.yaml"
     # yaml_file = "envs/drawer_opening.yaml"
-    yaml_file = "envs/cabinet_opening.yaml"
+    # yaml_file = "envs/cabinet_opening.yaml"
+    yaml_file = "envs/stirring.yaml"
     cfg, obj_cfg, action_cfg, cam_pos = read_yaml(yaml_file)
     env = og.Environment(configs=cfg)
     robot = env.robots[0]
@@ -235,54 +232,23 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     for _ in range(100):
         og.sim.step()
 
+    # while True:
+    #     og.sim.step()
 
-    # grasp_obj = obj_dict['grasp_obj']
-    # grasp_list = ik_solver.get_grasp(grasp_obj)
-    # for offset_joints, grasp_joints in grasp_list:
-    #     path2cutend = constrained_planning(env, robot, robot.get_joint_positions()[:6], offset_joints, custom_fn=check_region, num_const=6)
+    # start_joints = [ 4.2372e-07, -2.2000e+00,  1.9000e+00, -1.3830e+00, -1.5700e+00,-1.8141e-06]
+    # gripper_trans, gripper_quat = fk_solver.get_link_poses_quat(
+    #         start_joints, [robot._eef_link_names])[robot._eef_link_names]
+    # st_joints = ik_solver.solve_newcoord(gripper_trans + robot.get_position_orientation()[0], gripper_quat)
+    # goal_trans = gripper_trans + robot.get_position_orientation()[0]
 
-    #     # for joints in joint_path:
-    #     joints = robot.arm_joint_names[robot.default_arm]
-    #     breakpoint()
-
-            # robot.set_joint_positions(joints, offset_joints)
-        # for _ in range(1000):
-    # for _ in range(300): og.sim.step()
-    
-    # drawer = env.scene.objects[75]
-    # drawer = env.scene.objects[70]
-    # drawer = env.scene.objects[20]
-    # (
-    #     joint_type,
-    #     offset_grasp_pos,
-    #     grasp_pos,
-    #     goal_pos,
-    #     _,
-    #     const_arg,
-    # ) = get_grasp_position_for_open(robot, drawer, True, relevant_joint=drawer._joints["j_link_1"], offset=0.145)
-    # joints = ik_solver.solve_newcoord(*offset_grasp_pos)
-    # joints = ik_solver.solve_newcoord(*grasp_pos)
-    # grasp_loc = fk_solver.get_link_poses_quat(    (joints), [robot._eef_link_names])[robot._eef_link_names]
-
-    # ap = ActionPlan(env, robot, ik_solver, fk_solver)
-    # # joint_loc_world_frame, joint_axis_world_frame, joint_dist, 
-    # #                             eef_start_pos, total_yaw_change
-
-    # const = ap.get_revolute_constraint(**const_arg, eef_start_pos=grasp_loc)
-    # goal_joints = ik_solver.solve_newcoord(*goal_pos)
-    # grasp_joints = ik_solver.solve_newcoord(*grasp_pos)
-    # custom_fn = const['custom_fn']
-    # custom_fn(grasp_joints)
+    # new_quat = T.quat_multiply(gripper_quat, th.tensor([-0.5, 0.5, -0.5, 0.5]))
+    # pose = T.pose2mat((goal_trans, new_quat))
+    # goal_joints = ik_solver.solve(pose)
+    # goal_trans, goal_quat = fk_solver.get_link_poses_quat(goal_joints, [robot._eef_link_names])[robot._eef_link_names]
 
     # breakpoint()
-    # joints = ik_solver.solve_newcoord(*grasp_pos, initial_joint_pos=joints)
-    # joints = ik_solver.solve_newcoord(*goal_pos, initial_joint_pos=joints)
-    # robot.apply_action(th.cat((joints, th.full((1,),1))))
-    # for _ in range(20): og.sim.step()
     
-    # breakpoint()
 
-    # relation = og.object_states.open_state.Open
 
     # plan task
     ap = ActionPlan(env, robot, ik_solver, fk_solver)
@@ -291,6 +257,7 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
         print("******* NAME: ", name)
         if action[1] is None:
             planner = arm_planning
+            action[1] = None
         else:
             planner = constrained_planning
 
@@ -311,6 +278,8 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
             if target_obj is None:
                 raise Exception(f"Can't find {action[0]}!!!!!!")
                 
+        elif type(action[0]) == list:
+            target_obj = None
         else:
             target_obj = obj_dict[action[0]]
 
@@ -367,8 +336,8 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     # check if task is completed
     breakpoint()
     # joints = ap.motion_plan[0][0][10]
-    # robot.apply_action(th.cat((th.tensor(joints), th.full((1,),1))))
-    # for _ in range(100): og.sim.step()
+    robot.apply_action(th.cat((name[0], th.full((1,),-1))))
+    for _ in range(100): og.sim.step()
 
 if __name__ == "__main__":
     import argparse

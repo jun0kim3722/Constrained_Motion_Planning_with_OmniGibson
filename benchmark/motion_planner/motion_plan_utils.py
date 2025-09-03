@@ -34,7 +34,7 @@ class RobotCopy:
             "simplified": (th.tensor([0, 0, -2.0], dtype=th.float32), th.tensor([0, 0, 0, 1], dtype=th.float32)),
         }
     
-    def __init__(self, og_robot, robot_joints=None, obj=None, link_name=None):
+    def __init__(self, og_robot, robot_joints=None, obj=None, link_select=None):
         self.fk_solver = FKSolver(
             robot_description_path=og_robot.robot_arm_descriptor_yamls[og_robot.default_arm],
             robot_urdf_path=og_robot.urdf_path,
@@ -107,7 +107,7 @@ class RobotCopy:
 
                 obj_idx = 0
                 for name, link in obj.links.items():
-                    if link_name is not None and name != link_name:
+                    if link_select is not None and name != link_select:
                         continue
 
                     for mesh_name, mesh in link.collision_meshes.items():
@@ -289,7 +289,7 @@ class PlanningContext(object):
             obj_meshes = [link.GetPrimPath().pathString for link in robot_meshes_copy['ee_link'].values()]
             robot_meshes = []
             for robot_link in robot_meshes_copy.keys():
-                if 'finger' in robot_link or 'knuckle' in robot_link:
+                if 'finger' in robot_link or 'knuckle' in robot_link or 'robotiq_arg2f' in robot_link:
                     for mesh in robot_meshes_copy[robot_link].values():
                         self.disabled_collision_pairs_dict[mesh.GetPrimPath().pathString] += obj_meshes
                         robot_meshes.append(mesh.GetPrimPath().pathString)
@@ -429,12 +429,22 @@ class ArmPlanner():
 
         if not validityChecker.isValid(start, True):
             og.log.warning("Invalid Start from ArmPlanner")
+
+            # if not validityChecker.isValid(start, True):
+            #     breakpoint()
+            #     print("Start")
+            #     for _ in range(500): og.sim.step()
             return None
         
         if not validityChecker.isValid(goal, True):
             og.log.warning("Invalid Goal from ArmPlanner")
-            return None
 
+            # if not validityChecker.isValid(goal, True):
+            #     breakpoint()
+            #     print("Goal")
+            #     for _ in range(500): og.sim.step()
+            return None
+        
         pdef = ob.ProblemDefinition(self.si_)
         pdef.setStartAndGoalStates(start, goal)
         shortestPathObjective = ob.PathLengthOptimizationObjective(self.si_)

@@ -31,6 +31,7 @@ config:
   robots:
     - type: "UR5e"
       name: "UR5e"
+      grasping_mode: "assisted"
       obs_modalities: ["rgb", "depth"]
       position: [-3.1, -2, 0.8]
       action_normalize: False
@@ -48,7 +49,7 @@ task:
   task_name: Liquid pouring
 
   actions:
-    grasp: ["grasp_obj", {rot : null, trans : null}]
+    grasp: ["grasp_obj", null]
     hover: ["target_obj", {rot : "xy", trans : null}]
     twist: [[[1, 60], [0, 60], [1, -60], [0, -60]], {rot : "z", trans : "xy"}]
           # [axis idx, rotation degree]

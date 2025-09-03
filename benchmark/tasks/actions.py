@@ -3,7 +3,6 @@ import torch as th
 import numpy as np
 from collections import OrderedDict
 
-from motion_planner.motion_plan_utils import PlanningContext
 from motion_planner.constrained_planner import ArmCcontrainedPlanner
 from motion_planner.motion_plan_utils import PlanningContext, ArmPlanner
 from omnigibson.utils.grasping_planning_utils import get_grasp_position_for_open
@@ -89,7 +88,7 @@ class ActionPlan():
 
         self.motion_plan = []
         self.in_hand = in_hand
-        self.gripper2obj = None
+        self.obj2gripper = None
 
         self.grasp_joints = None
         self.offset_joints = None
@@ -98,6 +97,9 @@ class ActionPlan():
         self.last_joint = robot.get_joint_positions()[:6]
     
     def get_constraint(self, const_dict, const_pos, const_rot):
+        if const_dict is None:
+            return {}
+
         # calc constraints
         num_const = 0
         rot_mask = th.full((3,), False)
@@ -182,8 +184,7 @@ class ActionPlan():
 
         return {"custom_fn" : const_fn, "num_const" : int(1 + sum(rot_mask))}
 
-    def get_revolute_constraint(self, joint_loc_world_frame, joint_axis_world_frame, 
-                                eef_start_pos, total_yaw_change):
+    def get_revolute_constraint(self, joint_loc_world_frame, joint_axis_world_frame, eef_start_pos, rot_mask=th.full((3,), True)):
 
         joint_loc_robot_frame = T.relative_pose_transform(*joint_loc_world_frame, *self.robot.get_position_orientation())
         joint_loc_robot_frame[0][2] = eef_start_pos[0][2]
@@ -217,9 +218,9 @@ class ActionPlan():
             quat_diff = T.quat_distance(eef_quat, target_quat)
             ang_residual = T.quat2axisangle(quat_diff)
 
-            return th.cat((linear_distance_error.unsqueeze(0), trans_diff[2].unsqueeze(0), ang_residual))
+            return th.cat((linear_distance_error.unsqueeze(0), trans_diff[2].unsqueeze(0), ang_residual[rot_mask]))
 
-        return {"custom_fn": const_fn, "num_const": 5}
+        return {"custom_fn": const_fn, "num_const": 2 + int(sum(rot_mask))}
 
     
     def constrained_planning(self, env, robot, start_joints, goal_joints, collision_joints=None, obj=None,
@@ -228,7 +229,7 @@ class ActionPlan():
         path = None
         with PlanningContext(env, robot, collision_joints, obj, disabled_collision_pairs_dict) as context:
             acp = ArmCcontrainedPlanner(context, trans_const=trans_const, rot_const=rot_const,
-                                        rot_mask=rot_mask, trans_mask=trans_mask, num_const=num_const, tolerance=np.deg2rad(30.0))
+                                        rot_mask=rot_mask, trans_mask=trans_mask, num_const=num_const, tolerance=0.1)
             path = acp.plan(start_joints, goal_joints, context, planning_time=120.0)
 
             if path:
@@ -237,10 +238,10 @@ class ActionPlan():
 
         return path
 
-    def arm_planning(self, env, robot, start_joints, goal_joints, collision_joints=None, obj=None,
+    def arm_planning(self, env, robot, start_joints, goal_joints, link_name=None, collision_joints=None, obj=None,
                         disabled_collision_pairs_dict={}, **kwarg):
         path = None
-        with PlanningContext(env, robot, collision_joints, obj, disabled_collision_pairs_dict) as context:
+        with PlanningContext(env, robot, collision_joints, obj, link_name, disabled_collision_pairs_dict) as context:
             ap = ArmPlanner(context)
             path = ap.plan(start_joints, goal_joints, context)
 
@@ -344,9 +345,9 @@ class ActionPlan():
         gripper_trans, gripper_quat = self.fk_solver.get_link_poses_quat(
             start_joints, [self.robot._eef_link_names])[self.robot._eef_link_names]
         const_arg = self.get_constraint(const_dict, gripper_trans.clone(), gripper_quat.clone())
-        goal_trans = target_obj.get_position_orientation()[0] + th.tensor([0, 0, 0.4])
-        
+        goal_trans = target_obj.get_position_orientation()[0] + th.tensor([0, 0, 0.5])
         goal_joints = self.ik_solver.solve_newcoord(goal_trans, gripper_quat)
+        # goal_trans, goal_quat = self.fk_solver.get_link_poses_quat(goal_joints, [self.robot._eef_link_names])[self.robot._eef_link_names]
         if goal_joints is None: return False
 
         path = planner(self.env, self.robot, start_joints, goal_joints, collision_joints=self.collision_joints,
@@ -368,6 +369,7 @@ class ActionPlan():
             start_joints, [self.robot._eef_link_names])[self.robot._eef_link_names]
         const_arg = self.get_constraint(const_dict, gripper_trans.clone(), gripper_quat.clone())
 
+        path = None
         for rot_axis, rot_degree in target_rot:
             twist_euler = th.zeros(3)
             twist_euler[rot_axis] = np.deg2rad(rot_degree)
@@ -460,7 +462,6 @@ class ActionPlan():
             cut_end_pos = T.pose_transform(cut_end_trans, obj_quat, *self.obj2gripper)
             cut_end_joints = self.ik_solver.solve_newcoord(*cut_end_pos, initial_joint_pos=cut_joints)
 
-            breakpoint()
             if cut_end_joints is None: continue
             
             cut_gripper_trans, cut_gripper_quat = self.fk_solver.get_link_poses_quat(cut_joints, [self.robot._eef_link_names])[self.robot._eef_link_names]
@@ -472,18 +473,10 @@ class ActionPlan():
                         obj=self.in_hand, disabled_collision_pairs_dict=deepcopy(disabled_collision), **cut_end_arg)
 
             if path2cutend is not None:
-                with PlanningContext(self.env, self.robot, self.collision_joints, self.in_hand) as context:
-                    for j in path2cutend:
-                        # check wtf is going on here. Plan looks weird sometimes.
-                        context.set_arm_and_detect_collision(j, False)
-                        for _ in range(200): og.sim.step()
-                        breakpoint()
                 break
-
 
         if path2cut is None or path2cutend is None:
             return False
-            # raise Exception("Cut Planning Failed!!!!")
         
         complete_motion = path2cut + path2cutend + path2cutend[::-1] + path2cut[::-1]
         self.motion_plan.append([complete_motion, False])
@@ -491,6 +484,85 @@ class ActionPlan():
         og.log.info("Cut plan generated!!")
         return True
     
+    def stir(self, planner, target_obj, const_dict, offset_joints=None, **kwargs):
+        if offset_joints is None:
+            start_joints = self.last_joint
+        else:
+            start_joints = offset_joints.clone()
+
+        if self.obj2gripper is None:
+            robot_pos = self.robot.get_position_orientation()
+            eef_pos = self.fk_solver.get_link_poses_quat(
+                start_joints, [self.robot._eef_link_names])[self.robot._eef_link_names]
+            global_eef = T.pose_transform(*robot_pos, *eef_pos)
+            center_loc = self.in_hand.aabb_center + th.tensor([0,0,self.in_hand.aabb_extent[2]/2.0])
+
+            obj2gripper = T.relative_pose_transform(
+                    *global_eef, 
+                    center_loc, self.in_hand.get_position_orientation()[1],
+            )
+
+        # get target pose
+        stir_height = max(max(self.in_hand.aabb_extent)/2, target_obj.aabb_extent[2])
+        obj_trans = target_obj.get_position_orientation()[0] + th.tensor([0.1, 0.0, stir_height])
+        obj_quat = th.tensor([0.0, 0.707, 0.0, -0.707])
+        radius = min(target_obj.aabb_extent[:2])/2 - 0.085
+        ready_pos = T.pose_transform(obj_trans, obj_quat, *obj2gripper)
+
+        # center_joints = self.ik_solver.solve_newcoord(*ready_pos)
+        # with PlanningContext(self.env, self.robot, self.collision_joints, self.in_hand) as context:
+        #     breakpoint()
+        #     context.set_arm_and_detect_collision(center_joints, True)
+        #     for _ in range(100): og.sim.step()
+
+        top_point = ready_pos[0] + th.tensor([radius, 0, 0])
+        left_point = ready_pos[0] + th.tensor([0, radius, 0])
+        down_point = ready_pos[0] - th.tensor([radius, 0, 0])
+        right_point = ready_pos[0] - th.tensor([0, radius, 0])
+
+        top_joints = self.ik_solver.solve_newcoord(top_point, ready_pos[1])
+        left_joints = self.ik_solver.solve_newcoord(left_point, ready_pos[1], initial_joint_pos=top_joints)
+        down_joints = self.ik_solver.solve_newcoord(down_point, ready_pos[1], initial_joint_pos=left_joints)
+        right_joints = self.ik_solver.solve_newcoord(right_point, ready_pos[1], initial_joint_pos=down_joints)
+        if top_joints is None or left_point is None or down_joints is None or right_point is None:
+            print("stirring filed")
+            return False
+        
+        path2ready = self.arm_planning(self.env, self.robot, start_joints, top_joints,
+                       collision_joints=self.collision_joints, obj=self.in_hand)
+        if path2ready is None:
+            print("stirring path plan failed")
+            return False
+        
+        self.motion_plan.append([path2ready, False])
+
+        top_robot_frame = self.fk_solver.get_link_poses_quat((top_joints), [self.robot._eef_link_names])[self.robot._eef_link_names]
+        constraints = self.get_revolute_constraint(    
+            ready_pos, th.tensor([0,0,1]), top_robot_frame, rot_mask=th.tensor([True, True, False])
+        )
+
+        stir_paths = []
+        stir_joint_list = [left_joints, down_joints, right_joints, top_joints]
+        for i in range(4):
+            stir_path = planner(
+                self.env, self.robot, stir_joint_list[i-1], stir_joint_list[i],
+                collision_joints=self.collision_joints,
+                obj=self.in_hand, tolerance=0.01, **constraints
+            )
+
+            if stir_path is None:
+                print(f"stirring point{i} plan failed")
+                return False
+            
+            stir_paths += stir_path
+        
+        # add more motions
+        stir_paths += stir_paths
+        stir_paths += stir_paths
+        self.motion_plan.append([stir_paths, False])
+
+        return True
+
     def open_or_close(self, planner, target_obj, offset_joints=None, **kwargs):
         if offset_joints is None:
             start_joints = self.last_joint

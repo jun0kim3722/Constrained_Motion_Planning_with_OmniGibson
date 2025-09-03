@@ -25,7 +25,7 @@ task:
 
   actions:
     grasp: ["grasp_obj", null]
-    hover: ["target_obj", null]
+    hover: ["target_obj", {rot : "xy", trans : null}]
     cut: ["target_obj", {rot : "xz", trans : "xy"}]
 
   objects:

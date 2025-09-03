@@ -311,8 +311,8 @@ if __name__ == "__main__":
         obj_dir = base_dir + obj_name
 
         for item in os.listdir(obj_dir):
-            # if item != "ghhbgo":
-            #     continue
+            if item != "tczanw":
+                continue
             item_path = os.path.join(obj_dir, item) + "/usd"
             if os.path.isdir(item_path):
                 print("--------------OPENING: " + item_path +  "--------------")

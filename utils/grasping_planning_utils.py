@@ -510,7 +510,6 @@ def grasp_position_for_open_on_revolute_joint(robot, target_obj, relevant_joint,
     const_arg = {
         "joint_loc_world_frame" : link.get_position_orientation(),
         "joint_axis_world_frame" : joint_axis,
-        "total_yaw_change" : required_yaw_change,
     }
 
     return (

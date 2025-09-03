@@ -192,23 +192,22 @@ class ArmCcontrainedPlanner():
         # check start and goal state
         # assert validityChecker.isValid(start) and validityChecker.isValid(goal), "Invalid Start or Goal"
         if not validityChecker.isValid(start, True):
-            ogb.log.warning("Invalid Start from ArmCcontrainedPlanner")
+            ogb.log.warning("Invalid Start from ConstrainedPlanner")
+
+            if not validityChecker.isValid(start, True):
+                print("Start")
+                breakpoint()
+                for _ in range(500):
+                    ogb.sim.step()
+            return None
         
         if not validityChecker.isValid(goal, True):
-            ogb.log.warning("Invalid Goal from ArmCcontrainedPlanner")
+            ogb.log.warning("Invalid Goal from ConstrainedPlanner")
 
-            # if not validityChecker.isValid(start, True):
-            #     print("Start")
-            #     breakpoint()
-            #     for _ in range(500):
-            #         ogb.sim.step()
-
-            # if not validityChecker.isValid(goal, True):
-            #     breakpoint()
-            #     print("Goal")
-            #     for _ in range(500):
-            #         ogb.sim.step()
-
+            if not validityChecker.isValid(goal, True):
+                breakpoint()
+                print("Goal")
+                for _ in range(500): ogb.sim.step()
             return None
         
         if not validityChecker.isValid(goal, True):

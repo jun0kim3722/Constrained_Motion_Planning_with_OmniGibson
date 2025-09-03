@@ -235,7 +235,7 @@ class IKSolver:
         if len(rot) == 3:
             rot = T.euler2quat(rot)
 
-        new_quat = T.quat_multiply(rot, th.tensor([0.5, 0.5, 0.5, 0.5]))
+        new_quat = T.quat_multiply(rot, th.tensor([-0.5, 0.5, -0.5, 0.5]))
         target_pose_homo = T.pose2mat([trans, new_quat])
         target_pose_robot = np.dot(self.world2robot_homo, target_pose_homo)
         target_pose_pos = target_pose_robot[:3, 3]
@@ -286,7 +286,7 @@ class IKSolver:
             # solve IK
             offset_pose_homo = T.pose2mat([eef_offset_pos, eef_quat])
             joint_offset_pos = self.solve(target_pose_homo = offset_pose_homo)
-            if joint_offset_pos is not None: continue
+            if joint_offset_pos is None: continue
 
             target_pose_homo = T.pose2mat([eef_pos, eef_quat])
             joint_pos = self.solve(target_pose_homo = target_pose_homo, initial_joint_pos=joint_offset_pos)

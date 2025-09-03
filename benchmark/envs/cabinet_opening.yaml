@@ -26,7 +26,6 @@ task:
   task_name: Cabinet opening
 
   actions:
-    # grasp: ["top_cabinet_dmwxyl_1", null]
     grasp: ["bottom_cabinet_no_top_spojpj_0", null]
     open_or_close: ["bottom_cabinet_no_top_spojpj_0", revolute]
 
