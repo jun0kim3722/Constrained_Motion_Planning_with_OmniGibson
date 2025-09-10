@@ -3,7 +3,7 @@ import torch as th
 import numpy as np
 from collections import OrderedDict
 
-from motion_planner.constrained_planner import ArmCcontrainedPlanner
+from motion_planner.constrained_planner import ArmContrainedPlanner
 from motion_planner.motion_plan_utils import PlanningContext, ArmPlanner
 from omnigibson.utils.grasping_planning_utils import get_grasp_position_for_open
 
@@ -55,7 +55,6 @@ import omnigibson as og
 def execute_motion(env, robot, joint_path, is_gripper_open):
     for joints in joint_path:
         ctr = np.concatenate((joints, [1 if is_gripper_open else -1]), dtype="float32")
-        # robot.keep_still()
         robot.apply_action(ctr)
         for _ in range(10):
             og.sim.step()
@@ -228,7 +227,7 @@ class ActionPlan():
                          rot_mask=None, trans_mask=None, num_const=0,  **kwarg):
         path = None
         with PlanningContext(env, robot, collision_joints, obj, disabled_collision_pairs_dict) as context:
-            acp = ArmCcontrainedPlanner(context, trans_const=trans_const, rot_const=rot_const,
+            acp = ArmContrainedPlanner(context, trans_const=trans_const, rot_const=rot_const,
                                         rot_mask=rot_mask, trans_mask=trans_mask, num_const=num_const, tolerance=0.1)
             path = acp.plan(start_joints, goal_joints, context, planning_time=120.0)
 

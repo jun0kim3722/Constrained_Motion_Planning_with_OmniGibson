@@ -13,7 +13,7 @@ import omnigibson.utils.transform_utils as T
 
 from grasp_utils.kinematic import IKSolver, FKSolver
 from motion_planner.motion_plan_utils import PlanningContext, ArmPlanner
-from motion_planner.constrained_planner import ArmCcontrainedPlanner
+from motion_planner.constrained_planner import ArmContrainedPlanner
 
 from collections import OrderedDict
 from omnigibson.utils.asset_utils import (
@@ -123,30 +123,6 @@ def check_region(env, obj, obj_cfg, height, obj_locs):
     
     return obj_pos
 
-def execute_controller(env, joints, is_griper_open):
-    ctr = np.concatenate((joints, [1 if is_griper_open else -1]), dtype="float32")
-    action = OrderedDict([('UR5e', ctr)])
-    env.step(action)
-    og.sim.step()
-
-def close_gripper(env, robot):
-    curr_joints = robot.get_joint_positions()[:6]
-    for _ in range(20):
-        execute_controller(env, curr_joints, False)
-
-def execute_motion(env, joint_path, is_griper_open):
-    for joints in joint_path:
-        execute_controller(env, joints, is_griper_open)
-
-    for _ in range(50):
-        og.sim.step()
-
-def set_robot_to(env, robot, joint_angles, is_griper_open):
-    joint_angles = th.tensor(joint_angles)
-    while (robot.get_joint_positions()[:6] - joint_angles > 0.01).any():
-        execute_controller(env, joint_angles, is_griper_open)
-        print(robot.get_joint_positions()[:6], joint_angles)
-
 def get_pose_from_path(path_list, frame_rate=10):
     pos_list = []
     for path_idx in range(1, len(path_list)):
@@ -164,7 +140,7 @@ def constrained_planning(env, robot, start_joints, goal_joints, num_const=0, cus
     path = None
     with PlanningContext(env, robot, collision_joints, obj, link_name, disabled_collision_pairs_dict) as context:
 
-        acp = ArmCcontrainedPlanner(context, tolerance=tolerance, custom_fn=custom_fn, num_const=num_const)
+        acp = ArmContrainedPlanner(context, tolerance=tolerance, custom_fn=custom_fn, num_const=num_const)
         path = acp.plan(start_joints, goal_joints, context, planning_time=120.0)
 
         if path:
@@ -202,6 +178,10 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     env = og.Environment(configs=cfg)
     robot = env.robots[0]
     env.scene.update_initial_state()
+
+    if cfg["scene"]["scene_model"] == "Pomaria_1_int":
+        rm_obj = env.scene.object_registry("name", "burner_pmntxh_0")
+        env.scene.remove_object(rm_obj)
 
     # Update the simulator's viewer camera's pose so it points towards the robot
     og.sim.viewer_camera.set_position_orientation(

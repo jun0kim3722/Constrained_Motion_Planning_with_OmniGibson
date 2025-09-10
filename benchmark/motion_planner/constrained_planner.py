@@ -142,7 +142,7 @@ class ArmValidAll(ob.StateValidityChecker):
         joint_pos = th.tensor([dof_state[i] for i in range(self.dim)])
         return not self.context.set_arm_and_detect_collision(joint_pos, debug)
 
-class ArmCcontrainedPlanner():
+class ArmContrainedPlanner():
     def __init__(self, context, tolerance=0.1, custom_fn=None, num_const=None,
                  spaceType="PJ", tries=50, delta=0.05, lambda_=2.0, range_=0, exploration=0.75,
                  epsilon=0.05, rho=0.25, alpha=0.39, charts=200, bias=False, no_separate=False):

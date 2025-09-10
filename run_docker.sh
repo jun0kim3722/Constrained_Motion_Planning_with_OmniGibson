@@ -78,6 +78,7 @@ docker run \
     -v $DATA_PATH/utils/grasping_planning_utils.py:/omnigibson-src/omnigibson/utils/grasping_planning_utils.py:rw \
     -v $DATA_PATH/obj_list.txt:/data/og_dataset/objects/obj_list.txt:rw \
     -v $DATA_PATH/datasets:/data:rw \
+    -v $DATA_PATH/test_plans:/omnigibson-src/test_plans:rw \
     -v $DATA_PATH/isaac-sim/cache/kit:/isaac-sim/kit/cache/Kit:rw \
     -v $DATA_PATH/isaac-sim/cache/ov:/root/.cache/ov:rw \
     -v $DATA_PATH/isaac-sim/cache/pip:/root/.cache/pip:rw \

@@ -1,0 +1,40 @@
+scene:
+  type: "InteractiveTraversableScene"
+  scene_model: "Pomaria_1_int"
+
+objects:
+  - type: "PrimitiveObject"
+    name: "cube"
+    primitive_type: "Cube"
+    rgba: [1.0, 0, 0, 1.0]
+    size: 1
+    scale: [0.47, 0.1, 0.135]
+    position: [0, 0, 0]
+
+  - type: "DatasetObject"
+    name: "hammer"
+    category: "hammer"
+    model: "fcrlbo"
+    position: [-2.30038, -1.69381,  1.07]
+    orientation: [0, 0, 0, 1]
+
+robots:
+  - type: "UR5e"
+    name: "UR5e"
+    grasping_mode: "sticky"
+    obs_modalities: ["rgb", "depth"]
+    position: [-2.90654, -1.84227, 0.909]
+    action_normalize: False
+    controller_config:
+      arm_0:
+        name: JointController
+        use_delta_commands: False
+        command_input_limits: null
+
+      gripper_0:
+        name: MultiFingerGripperController
+        mode: binary
+
+file_name: hammering_test_fb
+task_num: 8
+is_grasp_list: [False, False, False, False, False, False, False, False]
