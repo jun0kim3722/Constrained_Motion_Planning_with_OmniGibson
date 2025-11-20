@@ -27,33 +27,33 @@ do
     esac
 done
 
-# # Move directories from their legacy paths.
-# if [ -e "${DATA_PATH}/og_dataset" ]; then
-#     mv "${DATA_PATH}/og_dataset" "${DATA_PATH}/datasets/og_dataset"
-# fi
-# if [ -e "${DATA_PATH}/assets" ]; then
-#     mv "${DATA_PATH}/assets" "${DATA_PATH}/datasets/assets"
-# fi
+# Move directories from their legacy paths.
+if [ -e "${DATA_PATH}/og_dataset" ]; then
+    mv "${DATA_PATH}/og_dataset" "${DATA_PATH}/datasets/og_dataset"
+fi
+if [ -e "${DATA_PATH}/assets" ]; then
+    mv "${DATA_PATH}/assets" "${DATA_PATH}/datasets/assets"
+fi
 
-# echo -e "${BYellow}IMPORTANT: Saving OmniGibson assets at ${DATA_PATH}."
-# echo -e "You can change this path by providing your desired path as an argument"
-# echo -e "to the run_docker script you are using. Also note that Docker containers"
-# echo -e "are incompatible with AFS/NFS drives, so please make sure that this path"
-# echo -e "points to a local filesystem. ${Color_Off}"
-# echo ""
+echo -e "${BYellow}IMPORTANT: Saving OmniGibson assets at ${DATA_PATH}."
+echo -e "You can change this path by providing your desired path as an argument"
+echo -e "to the run_docker script you are using. Also note that Docker containers"
+echo -e "are incompatible with AFS/NFS drives, so please make sure that this path"
+echo -e "points to a local filesystem. ${Color_Off}"
+echo ""
 
-# echo "The NVIDIA Omniverse License Agreement (EULA) must be accepted before"
-# echo "Omniverse Kit can start. The license terms for this product can be viewed at"
-# echo "https://docs.omniverse.nvidia.com/app_isaacsim/common/NVIDIA_Omniverse_License_Agreement.html"
+echo "The NVIDIA Omniverse License Agreement (EULA) must be accepted before"
+echo "Omniverse Kit can start. The license terms for this product can be viewed at"
+echo "https://docs.omniverse.nvidia.com/app_isaacsim/common/NVIDIA_Omniverse_License_Agreement.html"
 
-# while true; do
-#     read -p "Do you accept the Omniverse EULA? [y/n] " yn
-#     case $yn in
-#         [Yy]* ) break;;
-#         [Nn]* ) exit;;
-#         * ) echo "Please answer yes or no.";;
-#     esac
-# done
+while true; do
+    read -p "Do you accept the Omniverse EULA? [y/n] " yn
+    case $yn in
+        [Yy]* ) break;;
+        [Nn]* ) exit;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done
 
 docker pull stanfordvl/omnigibson:latest
 DOCKER_DISPLAY=""
