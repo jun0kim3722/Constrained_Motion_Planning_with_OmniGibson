@@ -8,9 +8,7 @@ config:
       name: "UR5e"
       grasping_mode: "assisted"
       obs_modalities: ["rgb", "depth"]
-      # position: [-3.86, -1.9, 1.4]
-      # position: [-3.6, -0.26, 1.5]
-      position: [-0.22, -0.26, 0.33]
+      position: [-0.27, -0.26, 0.33]
       action_normalize: False
       controller_config:
         arm_0:

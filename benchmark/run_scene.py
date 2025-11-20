@@ -7,6 +7,8 @@ Options for random actions, as well as selection of robot action space
 import torch as th
 import numpy as np
 import yaml
+import os
+import sys
 
 import omnigibson as og
 import omnigibson.utils.transform_utils as T
@@ -31,6 +33,30 @@ from tasks.actions import ActionPlan
 # gm.ENABLE_FLATCACHE = True
 GRASP_DIST = 0.15
 
+def choose_env():
+    env_dir = "envs/"
+    files = [f for f in os.listdir(env_dir) if os.path.isfile(os.path.join(env_dir, f))]
+
+    if not files:
+        print(f"No files found in the {env_dir} directory.")
+        return None
+
+    print("****************Task file list****************")
+    for idx, filename in enumerate(files, start=1):
+        print(f"{idx}. {filename[:-5]}")
+
+    while True:
+        try:
+            choice = int(input("Enter the number of the task you want to simulate: "))
+            if 1 <= choice <= len(files):
+                selected = files[choice - 1]
+                print(f"You selected: {selected}")
+                return os.path.join(env_dir, selected)
+            else:
+                print("Invalid number. Try again.")
+        except ValueError:
+            print("Please enter a valid number.")
+    
 def read_yaml(file_name):
     with open(file_name, "r") as file:
         benchmark_cfg = yaml.safe_load(file)
@@ -140,8 +166,8 @@ def constrained_planning(env, robot, start_joints, goal_joints, num_const=0, cus
     path = None
     with PlanningContext(env, robot, collision_joints, obj, link_name, disabled_collision_pairs_dict) as context:
 
-        acp = ArmContrainedPlanner(context, tolerance=tolerance, custom_fn=custom_fn, num_const=num_const)
-        path = acp.plan(start_joints, goal_joints, context, planning_time=120.0)
+        acp = ArmContrainedPlanner(context, tolerance=tolerance, custom_fn=custom_fn, num_const=num_const, spaceType=SPACETYPE)
+        path = acp.plan(start_joints, goal_joints, context, planning_time=120.0, planner_type=PLANNERTYPE)
 
         if path:
             path = get_pose_from_path(path)
@@ -162,18 +188,19 @@ def arm_planning(env, robot, start_joints, goal_joints, collision_joints=None, o
 
     return path
 
-def main(random_selection=False, headless=False, short_exec=False, quickstart=False):
+def main():
     """
-    Robot control demo with selection
-    Queries the user to select a robot, the controllers, a scene and a type of input (random actions or teleop)
+    Contraint Motion planning demo with task selection.
     """
 
-    # Create the environment
+    # Choose the environment
+    yaml_file = choose_env()
     # yaml_file = "envs/liqiuid_pouring.yaml"
     # yaml_file = "envs/object_cutting.yaml"
     # yaml_file = "envs/drawer_opening.yaml"
     # yaml_file = "envs/cabinet_opening.yaml"
-    yaml_file = "envs/stirring.yaml"
+    # yaml_file = "envs/stirring.yaml"
+
     cfg, obj_cfg, action_cfg, cam_pos = read_yaml(yaml_file)
     env = og.Environment(configs=cfg)
     robot = env.robots[0]
@@ -209,27 +236,8 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     # Reset environment and robot
     env.reset()
     robot.reset()
-    for _ in range(100):
-        og.sim.step()
-
-    # while True:
-    #     og.sim.step()
-
-    # start_joints = [ 4.2372e-07, -2.2000e+00,  1.9000e+00, -1.3830e+00, -1.5700e+00,-1.8141e-06]
-    # gripper_trans, gripper_quat = fk_solver.get_link_poses_quat(
-    #         start_joints, [robot._eef_link_names])[robot._eef_link_names]
-    # st_joints = ik_solver.solve_newcoord(gripper_trans + robot.get_position_orientation()[0], gripper_quat)
-    # goal_trans = gripper_trans + robot.get_position_orientation()[0]
-
-    # new_quat = T.quat_multiply(gripper_quat, th.tensor([-0.5, 0.5, -0.5, 0.5]))
-    # pose = T.pose2mat((goal_trans, new_quat))
-    # goal_joints = ik_solver.solve(pose)
-    # goal_trans, goal_quat = fk_solver.get_link_poses_quat(goal_joints, [robot._eef_link_names])[robot._eef_link_names]
-
-    # breakpoint()
+    for _ in range(100): og.sim.step()
     
-
-
     # plan task
     ap = ActionPlan(env, robot, ik_solver, fk_solver)
     find_grasp = False
@@ -310,24 +318,22 @@ def main(random_selection=False, headless=False, short_exec=False, quickstart=Fa
     print("********** plan grasp ***********")
     ap.add_grasp(arm_planning)
 
-    breakpoint()
+    input("Press any keys to simulate motion:")    
     ap.execute_actions()
-
-    # check if task is completed
-    breakpoint()
-    # joints = ap.motion_plan[0][0][10]
-    robot.apply_action(th.cat((name[0], th.full((1,),-1))))
-    for _ in range(100): og.sim.step()
+    for _ in range(200): og.sim.step()
 
 if __name__ == "__main__":
-    import argparse
+    space_match = {"PJ": ["KPIECE1", "BKPIECE1"], "AT": ["RRTConnect", "RRTstar", "RRT", "PRM"]}
+    if len(sys.argv) < 3:
+        print("***********Using Project sapce with KPIECE1 planner***********")
+        SPACETYPE = "PJ"
+        PLANNERTYPE = "KPIECE1"
 
-    parser = argparse.ArgumentParser(description="Teleoperate a robot in a BEHAVIOR scene.")
+    else:
+        assert sys.argv[1] in space_match.keys(), f"Please choose space type from here: \n{[*space_match.keys()]}"
+        assert sys.argv[2] in space_match[sys.argv[1]], f"Please choose planner type from here: \n{space_match[sys.argv[1]]}"
+        SPACETYPE = sys.argv[1]
+        PLANNERTYPE = sys.argv[2]
+        print(f"Planner Setting: {SPACETYPE} with {PLANNERTYPE} planner")
 
-    parser.add_argument(
-        "--quickstart",
-        action="store_true",
-        help="Whether the example should be loaded with default settings for a quick start.",
-    )
-    args = parser.parse_args()
-    main(quickstart=args.quickstart)
+    main()

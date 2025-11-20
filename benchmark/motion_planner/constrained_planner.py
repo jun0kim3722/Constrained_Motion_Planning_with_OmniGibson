@@ -13,13 +13,13 @@ import omnigibson.utils.transform_utils as T
 def getAtlasOptions():
     print("Pulling AtlasOPtions")
     return (
-        ob.ATLAS_STATE_SPACE_EPSILON,
-        ob.CONSTRAINED_STATE_SPACE_DELTA * ob.ATLAS_STATE_SPACE_RHO_MULTIPLIER,
-        ob.ATLAS_STATE_SPACE_EXPLORATION,
-        ob.ATLAS_STATE_SPACE_ALPHA,
-        ob.ATLAS_STATE_SPACE_MAX_CHARTS_PER_EXTENSION,
-        False,
-        True,
+        ob.ATLAS_STATE_SPACE_EPSILON, #epsilon
+        1.0, #rho
+        ob.ATLAS_STATE_SPACE_EXPLORATION, #exploration
+        ob.ATLAS_STATE_SPACE_ALPHA, #alpha
+        ob.ATLAS_STATE_SPACE_MAX_CHARTS_PER_EXTENSION, #charts
+        False, #bias
+        True, #no_separate
     )
 
 class ConstrainedProblem(object):
@@ -144,12 +144,13 @@ class ArmValidAll(ob.StateValidityChecker):
 
 class ArmContrainedPlanner():
     def __init__(self, context, tolerance=0.1, custom_fn=None, num_const=None,
-                 spaceType="PJ", tries=50, delta=0.05, lambda_=2.0, range_=0, exploration=0.75,
+                 spaceType="PJ", tries=50, delta=0.3, lambda_=2.0, range_=0, exploration=0.75,
                  epsilon=0.05, rho=0.25, alpha=0.39, charts=200, bias=False, no_separate=False):
         
         robot = context.robot
         self.joint_control_idx = robot.arm_control_idx[robot.default_arm]
         self.dim = len(self.joint_control_idx)
+        self.space_type = spaceType
 
         joint_limits = zip(robot.joint_lower_limits[:self.dim].tolist(), robot.joint_upper_limits[:self.dim].tolist())
         
@@ -176,6 +177,19 @@ class ArmContrainedPlanner():
             self.cp_.css.registerProjection("ur5e", ArmProjection(self.cp_.css, context))
 
     def plan(self, start_conf, end_conf, context, planner_type="KPIECE1", planning_time=30.0):
+        """
+        Input:
+            start_config:           Start joint angles of the robot.
+            end_config:             Goal joint angles of the robot.
+            flex_collision_models:  Obstacles fcl collision model.
+            planning_time:          Time limit for the plnner.
+            planner_type:           Type of planner. Choose from following.
+                                    [RRT, RRTConnect, RRTstar, EST, BiEST, ProjEST,
+                                     BITstar, PRM, SPARS, KPIECE1(Default), BKPIECE1]
+        
+        Return:
+            path_list:              Path output
+        """
         start = ob.State(self.cp_.css)
         for i in range(self.dim):
             start[i] = float(start_conf[i])
@@ -190,44 +204,38 @@ class ArmContrainedPlanner():
         si.setStateValidityCheckingResolution(0.0005)
 
         # check start and goal state
-        # assert validityChecker.isValid(start) and validityChecker.isValid(goal), "Invalid Start or Goal"
         if not validityChecker.isValid(start, True):
-            ogb.log.warning("Invalid Start from ConstrainedPlanner")
-
-            if not validityChecker.isValid(start, True):
-                print("Start")
-                breakpoint()
-                for _ in range(500):
-                    ogb.sim.step()
+            ogb.log.warning("Invalid Start Position from ConstrainedPlanner")
             return None
         
         if not validityChecker.isValid(goal, True):
-            ogb.log.warning("Invalid Goal from ConstrainedPlanner")
-
-            if not validityChecker.isValid(goal, True):
-                breakpoint()
-                print("Goal")
-                for _ in range(500): ogb.sim.step()
+            ogb.log.warning("Invalid Goal Position from ConstrainedPlanner")
             return None
-        
-        if not validityChecker.isValid(goal, True):
-            breakpoint()
-            print("Goal")
-            for _ in range(500):
-                ogb.sim.step()
         
         # Check Start & Goal constraint
-        st_result = np.zeros(self.constraint.num_const)
-        self.constraint.function(start_conf, st_result)
-        if (st_result > 0.1).any():
-            print("Start does not meet constraint")
-            breakpoint()
+        if self.space_type == 'PJ':
+            ok_s = self.constraint.project(start_conf)
+            if not ok_s:
+                ogb.log.warning("Invalid Start Constraint from ConstrainedPlanner")
+                return None
+            
+            ok_g = self.constraint.project(end_conf)
+            if not ok_g:
+                ogb.log.warning("Invalid Goal Constraint from ConstrainedPlanner")
+                return None
+        
+        else:
+            st_result = np.zeros(self.constraint.num_const)
+            self.constraint.function(start_conf, st_result)
+            if (st_result > 0.1).any():
+                ogb.log.warning("Invalid Start Constraint from ConstrainedPlanner")
+                return None
 
-        gl_result = np.zeros(self.constraint.num_const)
-        self.constraint.function(end_conf, gl_result)
-        if (gl_result > 0.1).any():
-            print("Goal does not meet constraint")
-            breakpoint()
+            gl_result = np.zeros(self.constraint.num_const)
+            self.constraint.function(end_conf, gl_result)
+            if (gl_result > 0.1).any():
+                ogb.log.warning("Invalid Goal Constraint from ConstrainedPlanner")
+                return None
 
         self.cp_.setStartAndGoalStates(start, goal)
         self.cp_.setPlanner(planner_type, "ur5e")

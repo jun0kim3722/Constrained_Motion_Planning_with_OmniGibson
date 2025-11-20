@@ -76,7 +76,6 @@ def get_pose_from_path(path_list, frame_rate=10):
     
     return pos_list
 
-
 # **************** Action Planner ****************
 class ActionPlan():
     def __init__(self, env, robot, ik_solver, fk_solver, in_hand=None):
@@ -597,6 +596,7 @@ class ActionPlan():
 
             name_idx = joint_name.find("link")
             link_name = joint_name[name_idx:]
+            self.collision_joints = grasp_joints.clone()
             path = planner(self.env, self.robot, grasp_joints, goal_joints, collision_joints=self.collision_joints,
                         obj=target_obj, link_name=link_name, **constraints)
 
