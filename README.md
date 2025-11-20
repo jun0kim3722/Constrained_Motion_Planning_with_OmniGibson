@@ -27,4 +27,4 @@ python run_scene.py [SpaceType] [PlannerType]
 You will then be prompted to select a task.
 
 ## Demo Video
-[![Demo Video](https://img.youtube.com/vi/VIDEO_ID/0.jpg)]([https://www.youtube.com/watch?v=VIDEO_ID](https://youtu.be/5mM_1vnh3U8))
+[![Watch the Demo](https://img.youtube.com/vi/5mM_1vnh3U8/0.jpg)](https://youtu.be/5mM_1vnh3U8)
